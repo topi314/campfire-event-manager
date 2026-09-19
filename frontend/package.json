@@ -1,0 +1,20 @@
+{
+  "name": "campfire-event-manager-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4",
+    "nuxt": "^3.16.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.16"
+  }
+}

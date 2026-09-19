@@ -1,0 +1,19 @@
+mutation EditEventMutation($input: EditEventInput!) {
+  editEvent(input: $input) {
+    event {
+      id
+      clubId
+      eventTime
+      eventEndTime
+      location
+      name
+      details
+      address
+      coverPhotoUrl
+      photoId
+      commentsPermissions
+      allInvited
+      campfireLiveEventId
+    }
+  }
+}

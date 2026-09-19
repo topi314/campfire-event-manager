@@ -1,0 +1,41 @@
+query ActiveEvents_Query(
+  $clubId: ID!
+  $first: Int!
+  $after: String
+) {
+  club(id: $clubId) {
+    id
+    activeFeed(first: $first, after: $after) {
+      edges {
+        node {
+          __typename
+          ... on Event {
+            id
+            name
+            address
+            location
+            coverPhotoUrl
+            details
+            eventTime
+            eventEndTime
+            commentsPermissions
+            allInvited
+            createdByCommunityAmbassador
+            campfireLiveEventId
+            clubId
+            creator {
+              id
+              username
+              displayName
+            }
+          }
+        }
+        cursor
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}

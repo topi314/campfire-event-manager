@@ -1,0 +1,12 @@
+query MeQuery {
+  me {
+    id
+    username
+    displayName
+    avatarUrl
+    badges {
+      badgeType
+      alias
+    }
+  }
+}

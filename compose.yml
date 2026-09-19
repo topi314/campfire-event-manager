@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.toml:/var/lib/config.toml
+    depends_on:
+      - db
+    networks:
+      - db
+
+  db:
+    image: postgres:17
+    environment:
+      - POSTGRES_USER=campfire-event-manager
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=campfire-event-manager
+      - PGDATA=/data/postgres
+    volumes:
+      - db:/data/postgres
+    ports:
+      - "5432:5432"
+    networks:
+      - db
+
+networks:
+  db:
+
+volumes:
+  db:

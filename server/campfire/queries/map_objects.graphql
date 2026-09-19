@@ -1,0 +1,29 @@
+query MapObjectsInBoundsQuery($mapObjectsInput: MapObjectsInLatLngBoundsInput!) {
+  mapObjectsInLatLngBounds(input: $mapObjectsInput) {
+    id
+    mapObjectType
+    pgoGym {
+      name
+      imageUrl
+      location {
+        latitude
+        longitude
+      }
+    }
+    pgoPowerspot {
+      name
+      location {
+        latitude
+        longitude
+      }
+    }
+    pgoPokestop {
+      name
+      imageUrl
+      location {
+        latitude
+        longitude
+      }
+    }
+  }
+}

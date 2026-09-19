@@ -1,0 +1,15 @@
+query LiveEventsQuery($input: MarketableCampfireLiveEventsInput!) {
+  marketableCampfireLiveEvents(input: $input) {
+    id
+    eventName
+    startTimestamp
+    endTimestamp
+    localStartTime
+    localEndTime
+    modalHeadingImageUrl
+    location {
+      latitude
+      longitude
+    }
+  }
+}

@@ -1,0 +1,8 @@
+# variables are defined in .env file
+projects:
+  campfire-event-manager:
+    schema:
+      - "https://niantic-social-api.nianticlabs.com/graphql":
+          headers:
+            Authorization: Bearer ${TOKEN}
+    documents: "server/campfire/queries/**/*.graphql"

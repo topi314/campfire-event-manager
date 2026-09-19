@@ -1,0 +1,10 @@
+mutation ProcessStagingImageMutation($input: ProcessStagingImageInput!) {
+  processStagingImage(input: $input) {
+    imageRecord {
+      photoId
+      transientUrl
+      expiresAt
+      permanentUrl
+    }
+  }
+}

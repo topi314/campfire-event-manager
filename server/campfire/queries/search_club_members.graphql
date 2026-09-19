@@ -1,0 +1,11 @@
+query SearchClubMembersQuery($clubId: ID!, $search: String!) {
+  club(id: $clubId) {
+    id
+    memberSearch(username: $search, displayName: $search) {
+      id
+      username
+      displayName
+      avatarUrl
+    }
+  }
+}

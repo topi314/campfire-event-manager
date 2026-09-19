@@ -1,0 +1,38 @@
+[log]
+level = "info"
+format = "text"
+add_source = false
+
+[server]
+addr = ":8080"
+public_url = "http://localhost:8080"
+# Browser origin for the SPA. Use Nuxt (:3000) in local dev; leave empty (or same as
+# public_url) when the Go server serves the embedded frontend.
+app_url = "http://localhost:3000"
+# Comma-separated browser origins allowed for CORS. Loopback is always allowed for Nuxt dev.
+cors_origins = "http://localhost:3000,http://127.0.0.1:3000"
+
+[database]
+host = "localhost" # use "db" when running via docker compose
+port = 5432
+username = "campfire-event-manager"
+password = "password"
+database = "campfire-event-manager"
+ssl_mode = "disable"
+
+[discord_auth]
+client_id = "123456789012345678"
+client_secret = "your_client_secret"
+guild_ids = ["123456789012345678"]
+whitelist = []
+admins = []
+
+[campfire]
+url = "https://niantic-social-api.nianticlabs.com/graphql"
+max_retries = 3
+# Pokémon GO reality channel (for club listing context if needed)
+reality_channel_id = "da83476a-c4da-4312-a610-a4f2fc2c37f0"
+
+[basemaps]
+# Free key from https://carto.com/basemaps/apikey — without it CARTO tiles are watermarked.
+carto_api_key = ""

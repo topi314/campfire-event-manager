@@ -1,0 +1,25 @@
+query ClubsQuery($first: Int!, $after: String) {
+  me {
+    id
+    memberOf(first: $first, after: $after) {
+      edges {
+        node {
+          id
+          name
+          game
+          avatarUrl
+          createdByCommunityAmbassador
+          amIAdmin
+          onlyAllowAdminsToCreateEvents
+          members {
+            totalCount
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/topi314/campfire-event-manager/server/auth"
 	"github.com/topi314/campfire-event-manager/server/database"
+	"github.com/topi314/campfire-event-manager/server/database/dbsqlc"
 )
 
 func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
@@ -30,11 +30,11 @@ func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		var session *database.SessionWithUser
+		var session *auth.SessionWithUser
 		for _, cookie := range r.CookiesNamed("session") {
-			sess, err := s.db.GetSession(ctx, cookie.Value)
+			sess, err := auth.LoadSession(ctx, s.db, cookie.Value)
 			if err != nil {
-				if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, database.ErrSessionExpired) {
+				if !database.IsNotFound(err) && !errors.Is(err, auth.ErrSessionExpired) {
 					slog.ErrorContext(ctx, "failed to get session", slog.Any("error", err))
 				}
 				continue
@@ -147,23 +147,23 @@ func (s *Server) loginCallback(w http.ResponseWriter, r *http.Request) {
 	expiration := now.AddDate(1, 0, 0)
 	sessionID := auth.RandomStr(32)
 
-	if err = s.db.UpsertDiscordUser(ctx, database.DiscordUser{
-		ID:          user.ID.String(),
-		Username:    user.Username,
-		DisplayName: user.EffectiveName(),
-		AvatarURL:   user.EffectiveAvatarURL(),
+	if err = s.db.UpsertDiscordUser(ctx, dbsqlc.UpsertDiscordUserParams{
+		DiscordUserID:          user.ID.String(),
+		DiscordUserUsername:    user.Username,
+		DiscordUserDisplayName: user.EffectiveName(),
+		DiscordUserAvatarUrl:   user.EffectiveAvatarURL(),
 	}); err != nil {
 		slog.ErrorContext(ctx, "failed to upsert discord user", slog.Any("error", err))
 		http.Error(w, "Failed to create user", http.StatusInternalServerError)
 		return
 	}
 
-	if err = s.db.CreateSession(ctx, database.Session{
-		ID:        sessionID,
-		CreatedAt: now,
-		ExpiresAt: expiration,
-		UserID:    user.ID.String(),
-		Admin:     admin,
+	if err = s.db.CreateSession(ctx, dbsqlc.CreateSessionParams{
+		SessionID:        sessionID,
+		SessionCreatedAt: database.Ts(now),
+		SessionExpiresAt: database.Ts(expiration),
+		SessionUserID:    user.ID.String(),
+		SessionAdmin:     admin,
 	}); err != nil {
 		slog.ErrorContext(ctx, "failed to create session", slog.Any("error", err))
 		http.Error(w, "Failed to create session", http.StatusInternalServerError)
@@ -254,7 +254,11 @@ func (s *Server) apiUpdateMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid timezone")
 		return
 	}
-	if err := s.db.SetDiscordUserTimeZone(r.Context(), session.DiscordUser.ID, tz); err != nil {
+	n, err := s.db.SetDiscordUserTimeZone(r.Context(), dbsqlc.SetDiscordUserTimeZoneParams{
+		DiscordUserID:       session.DiscordUser.ID,
+		DiscordUserTimezone: database.Text(tz),
+	})
+	if err != nil || n == 0 {
 		slog.ErrorContext(r.Context(), "failed to save timezone", slog.Any("error", err))
 		writeError(w, http.StatusInternalServerError, "failed to save timezone")
 		return

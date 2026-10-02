@@ -23,14 +23,14 @@ func (s *Server) resolveCoverAvatar(ctx context.Context, coverURL string) (*camp
 		if err != nil {
 			return nil, err
 		}
-		filename := strings.TrimSpace(img.Filename)
+		filename := strings.TrimSpace(img.CoverFilename)
 		if filename == "" {
 			filename = "cover.jpg"
 		}
 		return &campfire.AvatarUpload{
 			Filename:    filename,
-			ContentType: img.ContentType,
-			Data:        img.Data,
+			ContentType: img.CoverContentType,
+			Data:        img.CoverData,
 		}, nil
 	}
 	return s.campfire.FetchImage(ctx, coverURL)

@@ -1,8 +1,6 @@
 package server
 
 import (
-	"database/sql"
-	"errors"
 	"io"
 	"net/http"
 	"path"
@@ -10,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/topi314/campfire-event-manager/server/auth"
+	"github.com/topi314/campfire-event-manager/server/database"
+	"github.com/topi314/campfire-event-manager/server/database/dbsqlc"
 )
 
 const maxCoverBytes = 8 << 20
@@ -61,18 +61,22 @@ func (s *Server) uploadCover(w http.ResponseWriter, r *http.Request) {
 		filename = "cover.jpg"
 	}
 
-	img, err := s.db.InsertCoverImage(r.Context(), session.Session.UserID, filename, contentType, data)
+	img, err := s.db.InsertCoverImage(r.Context(), dbsqlc.InsertCoverImageParams{
+		CoverDiscordUserID: session.Session.UserID,
+		CoverFilename:      filename,
+		CoverContentType:   contentType,
+		CoverData:          data,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to store cover image")
 		return
 	}
 
-	url := coverAPIPath(img.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":          img.ID,
-		"url":         url,
-		"contentType": img.ContentType,
-		"filename":    img.Filename,
+		"id":          img.CoverID,
+		"url":         coverAPIPath(img.CoverID),
+		"contentType": img.CoverContentType,
+		"filename":    img.CoverFilename,
 	})
 }
 
@@ -84,18 +88,18 @@ func (s *Server) getCover(w http.ResponseWriter, r *http.Request) {
 	}
 	img, err := s.db.GetCoverImage(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if database.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "cover not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to load cover image")
 		return
 	}
-	w.Header().Set("Content-Type", img.ContentType)
+	w.Header().Set("Content-Type", img.CoverContentType)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
-	w.Header().Set("Content-Length", strconv.Itoa(len(img.Data)))
+	w.Header().Set("Content-Length", strconv.Itoa(len(img.CoverData)))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(img.Data)
+	_, _ = w.Write(img.CoverData)
 }
 
 func (s *Server) deleteCover(w http.ResponseWriter, r *http.Request) {
@@ -109,12 +113,16 @@ func (s *Server) deleteCover(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid cover id")
 		return
 	}
-	if err := s.db.DeleteCoverImage(r.Context(), id, session.Session.UserID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "cover not found")
-			return
-		}
+	n, err := s.db.DeleteCoverImage(r.Context(), dbsqlc.DeleteCoverImageParams{
+		CoverID:            id,
+		CoverDiscordUserID: session.Session.UserID,
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete cover image")
+		return
+	}
+	if n == 0 {
+		writeError(w, http.StatusNotFound, "cover not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -124,7 +132,6 @@ func coverAPIPath(id int64) string {
 	return "/api/covers/" + strconv.FormatInt(id, 10)
 }
 
-// parseCoverImageID extracts an id from "/api/covers/{id}" (optionally absolute).
 func parseCoverImageID(raw string) (int64, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

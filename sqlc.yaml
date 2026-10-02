@@ -1,0 +1,21 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "server/database/queries"
+    schema: "server/database/migrations"
+    gen:
+      go:
+        package: "dbsqlc"
+        out: "server/database/dbsqlc"
+        sql_package: "pgx/v5"
+        emit_empty_slices: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: "jsonb"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
+          - db_type: "pg_catalog.jsonb"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"

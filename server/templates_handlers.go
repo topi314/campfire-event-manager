@@ -1,16 +1,18 @@
 package server
 
 import (
-	"database/sql"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/topi314/campfire-event-manager/server/auth"
 	"github.com/topi314/campfire-event-manager/server/database"
+	"github.com/topi314/campfire-event-manager/server/database/dbsqlc"
 	"github.com/topi314/campfire-event-manager/server/languages"
 )
 
@@ -21,10 +23,14 @@ type templateBody struct {
 
 func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.GetSession(r)
-	templates, err := s.db.ListTemplates(r.Context(), session.Session.UserID)
+	rows, err := s.db.ListTemplatesByUser(r.Context(), session.Session.UserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list templates")
 		return
+	}
+	templates := make([]MeetupTemplate, 0, len(rows))
+	for _, row := range rows {
+		templates = append(templates, templateWithOrigin(row))
 	}
 	writeJSON(w, http.StatusOK, templates)
 }
@@ -36,16 +42,19 @@ func (s *Server) getTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	t, err := s.db.GetTemplate(r.Context(), session.Session.UserID, id)
+	row, err := s.db.GetTemplateForUser(r.Context(), dbsqlc.GetTemplateForUserParams{
+		TemplateID:            id,
+		TemplateDiscordUserID: session.Session.UserID,
+	})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
+		if database.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "template not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to get template")
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, templateWithOriginGet(row))
 }
 
 func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
@@ -60,12 +69,32 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	t, err := s.db.CreateTemplate(r.Context(), session.Session.UserID, body.Name, body.Payload)
+	t, err := s.createTemplateRow(r.Context(), session.Session.UserID, body.Name, body.Payload, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create template")
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+func (s *Server) createTemplateRow(ctx context.Context, userID, name string, payload json.RawMessage, originID *int64) (MeetupTemplate, error) {
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	now := time.Now().UTC()
+	row, err := s.db.CreateTemplate(ctx, dbsqlc.CreateTemplateParams{
+		TemplateDiscordUserID: userID,
+		TemplateName:          name,
+		TemplatePayload:       payload,
+		TemplateOriginID:      database.Int8Ptr(originID),
+		TemplateSynced:        originID != nil,
+		TemplateCreatedAt:     database.Ts(now),
+		TemplateUpdatedAt:     database.Ts(now),
+	})
+	if err != nil {
+		return MeetupTemplate{}, err
+	}
+	return templateFromCreate(row), nil
 }
 
 func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
@@ -85,16 +114,26 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	t, err := s.db.UpdateTemplate(r.Context(), session.Session.UserID, id, body.Name, body.Payload)
+	if len(body.Payload) == 0 {
+		body.Payload = json.RawMessage(`{}`)
+	}
+	now := time.Now().UTC()
+	row, err := s.db.UpdateTemplate(r.Context(), dbsqlc.UpdateTemplateParams{
+		TemplateName:          body.Name,
+		TemplatePayload:       body.Payload,
+		TemplateID:            id,
+		TemplateDiscordUserID: session.Session.UserID,
+		TemplateUpdatedAt:     database.Ts(now),
+	})
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows") {
+		if database.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "template not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to update template")
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, templateFromUpdate(row))
 }
 
 func (s *Server) deleteTemplate(w http.ResponseWriter, r *http.Request) {
@@ -104,12 +143,16 @@ func (s *Server) deleteTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.db.DeleteTemplate(r.Context(), session.Session.UserID, id); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			writeError(w, http.StatusNotFound, "template not found")
-			return
-		}
+	n, err := s.db.DeleteTemplate(r.Context(), dbsqlc.DeleteTemplateParams{
+		TemplateID:            id,
+		TemplateDiscordUserID: session.Session.UserID,
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete template")
+		return
+	}
+	if n == 0 {
+		writeError(w, http.StatusNotFound, "template not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -154,21 +197,47 @@ func (s *Server) setTemplatePublish(w http.ResponseWriter, r *http.Request, publ
 		}
 	}
 
-	t, err := s.db.SetTemplatePublished(r.Context(), session.Session.UserID, id, published, description, language)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
-			writeError(w, http.StatusNotFound, "template not found")
+	now := time.Now().UTC()
+	var t MeetupTemplate
+	if published {
+		row, err := s.db.PublishTemplate(r.Context(), dbsqlc.PublishTemplateParams{
+			Now:         database.Ts(now),
+			Description: database.Text(description),
+			Language:    database.Text(language),
+			ID:          id,
+			UserID:      session.Session.UserID,
+		})
+		if err != nil {
+			if database.IsNotFound(err) {
+				writeError(w, http.StatusNotFound, "template not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to update publish state")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to update publish state")
-		return
+		t = templateFromPublish(row)
+	} else {
+		row, err := s.db.UnpublishTemplate(r.Context(), dbsqlc.UnpublishTemplateParams{
+			TemplateID:            id,
+			TemplateDiscordUserID: session.Session.UserID,
+			TemplateUpdatedAt:     database.Ts(now),
+		})
+		if err != nil {
+			if database.IsNotFound(err) {
+				writeError(w, http.StatusNotFound, "template not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to update publish state")
+			return
+		}
+		t = templateFromUnpublish(row)
 	}
 	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) sharedTemplates(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.GetSession(r)
-	f := database.SharedFilter{
+	templates, err := s.listPublishedTemplates(r.Context(), SharedFilter{
 		Query:        r.URL.Query().Get("q"),
 		Category:     r.URL.Query().Get("category"),
 		Language:     r.URL.Query().Get("language"),
@@ -176,8 +245,7 @@ func (s *Server) sharedTemplates(w http.ResponseWriter, r *http.Request) {
 		Publisher:    r.URL.Query().Get("creator"),
 		Sort:         r.URL.Query().Get("sort"),
 		ViewerUserID: session.Session.UserID,
-	}
-	templates, err := s.db.ListPublishedTemplates(r.Context(), f)
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list shared templates")
 		return
@@ -192,15 +260,15 @@ func (s *Server) likeTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.db.LikeTemplate(r.Context(), session.Session.UserID, id); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	if err := s.likeTemplateRecord(r.Context(), session.Session.UserID, id); err != nil {
+		if database.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "template not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to like template")
 		return
 	}
-	count, likedByMe, likers, err := s.db.GetTemplateLikeState(r.Context(), session.Session.UserID, id)
+	count, likedByMe, likers, err := s.templateLikeState(r.Context(), session.Session.UserID, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load likes")
 		return
@@ -219,11 +287,14 @@ func (s *Server) unlikeTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.db.UnlikeTemplate(r.Context(), session.Session.UserID, id); err != nil {
+	if err := s.db.UnlikeTemplate(r.Context(), dbsqlc.UnlikeTemplateParams{
+		TemplateID:    id,
+		DiscordUserID: session.Session.UserID,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to unlike template")
 		return
 	}
-	count, likedByMe, likers, err := s.db.GetTemplateLikeState(r.Context(), session.Session.UserID, id)
+	count, likedByMe, likers, err := s.templateLikeState(r.Context(), session.Session.UserID, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load likes")
 		return
@@ -242,37 +313,30 @@ func (s *Server) cloneTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	src, err := s.db.GetTemplateByID(r.Context(), id)
+	srcRow, err := s.db.GetTemplateByID(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
+		if database.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "template not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to load template")
 		return
 	}
+	src := templateFromByID(srcRow)
 	isOwner := src.DiscordUserID == session.Session.UserID
 	if !isOwner && src.PublishedAt == nil {
 		writeError(w, http.StatusNotFound, "template not found")
 		return
 	}
 	originID := src.ID
-	// Prefer the ultimate origin when cloning a clone.
 	if src.OriginID != nil {
 		originID = *src.OriginID
 	}
 	payload := src.Payload
 	if src.PublishedAt != nil {
-		// Shared templates never include the publisher's pin.
-		payload = database.StripSharedFieldsFromPayload(src.Payload)
+		payload = stripSharedFieldsFromPayload(src.Payload)
 	}
-	t, err := s.db.CreateTemplateClone(
-		r.Context(),
-		session.Session.UserID,
-		src.Name,
-		payload,
-		&originID,
-	)
+	t, err := s.createTemplateRow(r.Context(), session.Session.UserID, src.Name, payload, &originID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to clone template")
 		return
@@ -286,16 +350,17 @@ func (s *Server) getProfile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing user id")
 		return
 	}
-	user, err := s.db.GetDiscordUser(r.Context(), userID)
+	userRow, err := s.db.GetDiscordUser(r.Context(), userID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
+		if database.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "user not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to load profile")
 		return
 	}
-	f := database.SharedFilter{
+	user := auth.DiscordUserFrom(userRow)
+	f := SharedFilter{
 		Query:        r.URL.Query().Get("q"),
 		Category:     r.URL.Query().Get("category"),
 		Language:     r.URL.Query().Get("language"),
@@ -314,7 +379,7 @@ func (s *Server) getProfile(w http.ResponseWriter, r *http.Request) {
 	if session, ok := auth.GetSession(r); ok {
 		f.ViewerUserID = session.Session.UserID
 	}
-	templates, err := s.db.ListPublishedTemplates(r.Context(), f)
+	templates, err := s.listPublishedTemplates(r.Context(), f)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list published templates")
 		return
@@ -338,7 +403,6 @@ func (s *Server) importTemplates(w http.ResponseWriter, r *http.Request) {
 	}
 	files := r.MultipartForm.File["files"]
 	if len(files) == 0 {
-		// also accept single "file"
 		files = r.MultipartForm.File["file"]
 	}
 	if len(files) == 0 {
@@ -367,7 +431,6 @@ func (s *Server) importTemplates(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimSuffix(fh.Filename, ".json")
 		payload := json.RawMessage(data)
 
-		// Support { "name": "...", "payload": {...} } or bare payload object.
 		var wrapper struct {
 			Name    string          `json:"name"`
 			Payload json.RawMessage `json:"payload"`
@@ -385,7 +448,7 @@ func (s *Server) importTemplates(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(name) == "" {
 			name = "Imported template"
 		}
-		t, err := s.db.CreateTemplate(r.Context(), session.Session.UserID, name, payload)
+		t, err := s.createTemplateRow(r.Context(), session.Session.UserID, name, payload, nil)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to import template")
 			return

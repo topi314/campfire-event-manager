@@ -15,7 +15,7 @@ import (
 
 type Server struct {
 	cfg        Config
-	db         *database.Database
+	db         *database.DB
 	auth       *auth.Auth
 	campfire   *campfire.Client
 	httpClient *http.Client
@@ -40,7 +40,7 @@ func New(cfg Config) (*Server, error) {
 
 	handler, err := s.Handler()
 	if err != nil {
-		_ = db.Close()
+		db.Close()
 		return nil, err
 	}
 	s.http = &http.Server{
@@ -66,9 +66,7 @@ func (s *Server) Stop() {
 	if err := s.http.Shutdown(ctx); err != nil {
 		slog.Error("error while shutting down server", slog.Any("err", err))
 	}
-	if err := s.db.Close(); err != nil {
-		slog.Error("error while closing database", slog.Any("err", err))
-	}
+	s.db.Close()
 }
 
 func (s *Server) Handler() (http.Handler, error) {

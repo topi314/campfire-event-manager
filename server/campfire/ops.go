@@ -74,12 +74,8 @@ func (c *Client) Clubs(ctx context.Context, token string) ([]Club, error) {
 	out := make([]Club, 0)
 	after := ""
 	for {
-		vars := map[string]any{"first": pageSize}
-		if after != "" {
-			vars["after"] = after
-		}
 		var resp clubsResp
-		if err := c.Do(ctx, token, queryClubs, vars, &resp); err != nil {
+		if err := c.Do(ctx, token, queryClubs, clubsVars{First: pageSize, After: after}, &resp); err != nil {
 			return nil, err
 		}
 		for _, e := range resp.Me.MemberOf.Edges {

@@ -28,11 +28,10 @@ type liveEventsResp struct {
 }
 
 func (c *Client) LiveEvents(ctx context.Context, token string) ([]LiveEvent, error) {
-	vars := map[string]any{
-		"input": map[string]any{"game": GamePGO},
-	}
 	var resp liveEventsResp
-	if err := c.Do(ctx, token, queryLiveEvents, vars, &resp); err != nil {
+	if err := c.Do(ctx, token, queryLiveEvents, liveEventsVars{
+		Input: marketableCampfireLiveEventsInput{Game: GamePGO},
+	}, &resp); err != nil {
 		return nil, err
 	}
 	events := resp.MarketableCampfireLiveEvents
@@ -69,15 +68,12 @@ func (c *Client) ClubMembers(ctx context.Context, token, clubID string, first in
 	if first <= 0 {
 		first = 50
 	}
-	vars := map[string]any{
-		"clubId": clubID,
-		"first":  first,
-	}
-	if after != "" {
-		vars["after"] = after
-	}
 	var resp clubMembersResp
-	if err := c.Do(ctx, token, queryClubMembers, vars, &resp); err != nil {
+	if err := c.Do(ctx, token, queryClubMembers, clubMembersVars{
+		ClubID: clubID,
+		First:  first,
+		After:  after,
+	}, &resp); err != nil {
 		return nil, "", false, err
 	}
 	members := make([]ClubMember, 0, len(resp.Club.Members.Edges))
@@ -95,9 +91,11 @@ type searchMembersResp struct {
 }
 
 func (c *Client) SearchClubMembers(ctx context.Context, token, clubID, search string) ([]ClubMember, error) {
-	vars := map[string]any{"clubId": clubID, "search": search}
 	var resp searchMembersResp
-	if err := c.Do(ctx, token, querySearchClubMembers, vars, &resp); err != nil {
+	if err := c.Do(ctx, token, querySearchClubMembers, searchClubMembersVars{
+		ClubID: clubID,
+		Search: search,
+	}, &resp); err != nil {
 		return nil, err
 	}
 	members := resp.Club.MemberSearch
@@ -123,8 +121,8 @@ type CreateActivityReminderInput struct {
 	CommentsPermissions          string   `json:"commentsPermissions,omitempty"`
 	AllInvited                   *bool    `json:"allInvited,omitempty"`
 	UserIDs                      []string `json:"userIds"`
-	CampfireLiveEventID          string   `json:"campfireLiveEventId,omitempty"`
-	CreatedByCommunityAmbassador *bool    `json:"createdByCommunityAmbassador,omitempty"`
+	CampfireLiveEventID          string        `json:"campfireLiveEventId,omitempty"`
+	CreatedByCommunityAmbassador *bool         `json:"createdByCommunityAmbassador,omitempty"`
 	Avatar                       *AvatarUpload `json:"-"`
 }
 
@@ -169,21 +167,7 @@ func (c *Client) CreateActivityReminder(ctx context.Context, token string, input
 	input.Avatar = nil
 	input.CoverPhotoURL = ""
 
-	raw, err := json.Marshal(input)
-	if err != nil {
-		return nil, err
-	}
-	var fields map[string]any
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return nil, err
-	}
-
-	vars := map[string]any{
-		"input": fields,
-	}
-
 	if avatar != nil && len(avatar.Data) > 0 {
-		fields["avatarFile"] = nil
 		filename := strings.TrimSpace(avatar.Filename)
 		if filename == "" {
 			filename = "cover.jpg"
@@ -197,7 +181,9 @@ func (c *Client) CreateActivityReminder(ctx context.Context, token string, input
 			token,
 			"CreateActivityReminderMutation",
 			mutationCreateActivityReminder,
-			vars,
+			createActivityReminderMultipartVars{
+				Input: createActivityReminderMultipartInput{CreateActivityReminderInput: input},
+			},
 			"variables.input.avatarFile",
 			filename,
 			contentType,
@@ -214,7 +200,7 @@ func (c *Client) CreateActivityReminder(ctx context.Context, token string, input
 	}
 
 	var resp createActivityReminderResp
-	if err := c.Do(ctx, token, mutationCreateActivityReminder, vars, &resp); err != nil {
+	if err := c.Do(ctx, token, mutationCreateActivityReminder, createActivityReminderVars{Input: input}, &resp); err != nil {
 		return nil, err
 	}
 	return resp.CreateActivityReminder.Event, nil

@@ -1,14 +1,16 @@
 package server
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/topi314/campfire-event-manager/server/auth"
+	"github.com/topi314/campfire-event-manager/server/database"
+	"github.com/topi314/campfire-event-manager/server/database/dbsqlc"
 )
 
 type draftBody struct {
@@ -85,10 +87,14 @@ func (s *Server) listDrafts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	items, err := s.db.ListDraftsByClubIDs(r.Context(), ids)
+	rows, err := s.db.ListDraftsByClubIDs(r.Context(), ids)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list drafts")
 		return
+	}
+	items := make([]MeetupDraftItem, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, draftFromList(row))
 	}
 	writeJSON(w, http.StatusOK, items)
 }
@@ -109,13 +115,28 @@ func (s *Server) createDraft(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, msg)
 		return
 	}
-	item, err := s.db.CreateDraft(r.Context(), clubID, session.Session.UserID, body.Payload)
+	now := time.Now().UTC()
+	created, err := s.db.CreateDraft(r.Context(), dbsqlc.CreateDraftParams{
+		DraftClubID:        clubID,
+		DraftDiscordUserID: session.Session.UserID,
+		DraftPayload:       body.Payload,
+		DraftCreatedAt:     database.Ts(now),
+		DraftUpdatedAt:     database.Ts(now),
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create draft")
 		return
 	}
-	if full, err := s.db.GetDraft(r.Context(), item.ID); err == nil {
-		item = full
+	item := MeetupDraftItem{
+		ID:            created.DraftID,
+		ClubID:        created.DraftClubID,
+		DiscordUserID: created.DraftDiscordUserID,
+		Payload:       created.DraftPayload,
+		CreatedAt:     created.DraftCreatedAt.Time,
+		UpdatedAt:     created.DraftUpdatedAt.Time,
+	}
+	if full, err := s.db.GetDraft(r.Context(), created.DraftID); err == nil {
+		item = draftFromGet(full)
 	}
 	writeJSON(w, http.StatusCreated, item)
 }
@@ -126,15 +147,16 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	existing, err := s.db.GetDraft(r.Context(), id)
+	existingRow, err := s.db.GetDraft(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if database.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "draft not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to load draft")
 		return
 	}
+	existing := draftFromGet(existingRow)
 	if _, status, msg := s.requireAdminOfClub(r, existing.ClubID); status != 0 {
 		writeError(w, status, msg)
 		return
@@ -160,17 +182,31 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	item, err := s.db.UpdateDraft(r.Context(), id, clubID, body.Payload)
+	now := time.Now().UTC()
+	updated, err := s.db.UpdateDraft(r.Context(), dbsqlc.UpdateDraftParams{
+		DraftPayload:   body.Payload,
+		DraftClubID:    clubID,
+		DraftID:        id,
+		DraftUpdatedAt: database.Ts(now),
+	})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no rows") {
+		if database.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "draft not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to update draft")
 		return
 	}
-	if full, err := s.db.GetDraft(r.Context(), item.ID); err == nil {
-		item = full
+	item := MeetupDraftItem{
+		ID:            updated.DraftID,
+		ClubID:        updated.DraftClubID,
+		DiscordUserID: updated.DraftDiscordUserID,
+		Payload:       updated.DraftPayload,
+		CreatedAt:     updated.DraftCreatedAt.Time,
+		UpdatedAt:     updated.DraftUpdatedAt.Time,
+	}
+	if full, err := s.db.GetDraft(r.Context(), updated.DraftID); err == nil {
+		item = draftFromGet(full)
 	}
 	writeJSON(w, http.StatusOK, item)
 }
@@ -181,25 +217,27 @@ func (s *Server) deleteDraft(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	existing, err := s.db.GetDraft(r.Context(), id)
+	existingRow, err := s.db.GetDraft(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if database.IsNotFound(err) {
 			writeError(w, http.StatusNotFound, "draft not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to load draft")
 		return
 	}
+	existing := draftFromGet(existingRow)
 	if _, status, msg := s.requireAdminOfClub(r, existing.ClubID); status != 0 {
 		writeError(w, status, msg)
 		return
 	}
-	if err := s.db.DeleteDraft(r.Context(), id); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			writeError(w, http.StatusNotFound, "draft not found")
-			return
-		}
+	n, err := s.db.DeleteDraft(r.Context(), id)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete draft")
+		return
+	}
+	if n == 0 {
+		writeError(w, http.StatusNotFound, "draft not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

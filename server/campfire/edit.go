@@ -56,15 +56,12 @@ func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first i
 	if first <= 0 {
 		first = 50
 	}
-	vars := map[string]any{
-		"clubId": clubID,
-		"first":  first,
-	}
-	if after != "" {
-		vars["after"] = after
-	}
 	var resp activeEventsResp
-	if err := c.Do(ctx, token, queryActiveEvents, vars, &resp); err != nil {
+	if err := c.Do(ctx, token, queryActiveEvents, activeEventsVars{
+		ClubID: clubID,
+		First:  first,
+		After:  after,
+	}, &resp); err != nil {
 		return nil, "", false, err
 	}
 	out := make([]ClubEvent, 0, len(resp.Club.ActiveFeed.Edges))
@@ -129,9 +126,8 @@ func (c *Client) EditEvent(ctx context.Context, token string, input EditEventInp
 	if input.Avatar != nil && len(input.Avatar.Data) > 0 {
 		return c.editEventWithAvatar(ctx, token, input)
 	}
-	vars := map[string]any{"input": input}
 	var resp editEventResp
-	if err := c.Do(ctx, token, mutationEditEvent, vars, &resp); err != nil {
+	if err := c.Do(ctx, token, mutationEditEvent, editEventVars{Input: input}, &resp); err != nil {
 		return nil, err
 	}
 	return resp.EditEvent.Event, nil
@@ -144,16 +140,6 @@ func (c *Client) editEventWithAvatar(ctx context.Context, token string, input Ed
 	changed := true
 	input.HasEventPhotoChanged = &changed
 
-	raw, err := json.Marshal(input)
-	if err != nil {
-		return nil, err
-	}
-	var fields map[string]any
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return nil, err
-	}
-	fields["avatarFile"] = nil
-
 	filename := strings.TrimSpace(avatar.Filename)
 	if filename == "" {
 		filename = "cover.jpg"
@@ -163,7 +149,9 @@ func (c *Client) editEventWithAvatar(ctx context.Context, token string, input Ed
 		contentType = "image/jpeg"
 	}
 
-	data, err := c.doMultipart(ctx, token, "EditEventMutation", mutationEditEvent, map[string]any{"input": fields}, "variables.input.avatarFile", filename, contentType, avatar.Data)
+	data, err := c.doMultipart(ctx, token, "EditEventMutation", mutationEditEvent, editEventMultipartVars{
+		Input: editEventMultipartInput{EditEventInput: input},
+	}, "variables.input.avatarFile", filename, contentType, avatar.Data)
 	if err != nil {
 		return nil, err
 	}
@@ -181,9 +169,10 @@ type deleteEventResp struct {
 }
 
 func (c *Client) DeleteEvent(ctx context.Context, token, eventID string) (bool, error) {
-	vars := map[string]any{"input": map[string]string{"eventId": eventID}}
 	var resp deleteEventResp
-	if err := c.Do(ctx, token, mutationDeleteEvent, vars, &resp); err != nil {
+	if err := c.Do(ctx, token, mutationDeleteEvent, deleteEventVars{
+		Input: DeleteEventInput{EventID: eventID},
+	}, &resp); err != nil {
 		return false, err
 	}
 	return resp.DeleteEvent.Success, nil

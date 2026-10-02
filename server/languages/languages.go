@@ -4,33 +4,106 @@ import "strings"
 
 // TemplateLanguages are ISO 639-1 codes accepted when publishing templates.
 var TemplateLanguages = map[string]string{
-	"en": "English",
-	"de": "German",
-	"fr": "French",
-	"es": "Spanish",
-	"nl": "Dutch",
-	"it": "Italian",
-	"pt": "Portuguese",
-	"pl": "Polish",
+	"af": "Afrikaans",
+	"am": "Amharic",
+	"ar": "Arabic",
+	"az": "Azerbaijani",
+	"be": "Belarusian",
+	"bg": "Bulgarian",
+	"bn": "Bengali",
+	"bs": "Bosnian",
+	"ca": "Catalan",
 	"cs": "Czech",
-	"sk": "Slovak",
-	"hu": "Hungarian",
-	"ro": "Romanian",
-	"sv": "Swedish",
+	"cy": "Welsh",
 	"da": "Danish",
-	"nb": "Norwegian",
+	"de": "German",
+	"el": "Greek",
+	"en": "English",
+	"eo": "Esperanto",
+	"es": "Spanish",
+	"et": "Estonian",
+	"eu": "Basque",
+	"fa": "Persian",
 	"fi": "Finnish",
+	"fo": "Faroese",
+	"fr": "French",
+	"ga": "Irish",
+	"gl": "Galician",
+	"gu": "Gujarati",
+	"he": "Hebrew",
+	"hi": "Hindi",
+	"hr": "Croatian",
+	"hu": "Hungarian",
+	"hy": "Armenian",
+	"id": "Indonesian",
+	"is": "Icelandic",
+	"it": "Italian",
+	"ja": "Japanese",
+	"ka": "Georgian",
+	"kk": "Kazakh",
+	"km": "Khmer",
+	"kn": "Kannada",
+	"ko": "Korean",
+	"ku": "Kurdish",
+	"lb": "Luxembourgish",
+	"lo": "Lao",
+	"lt": "Lithuanian",
+	"lv": "Latvian",
+	"mk": "Macedonian",
+	"ml": "Malayalam",
+	"mn": "Mongolian",
+	"mr": "Marathi",
+	"ms": "Malay",
+	"mt": "Maltese",
+	"my": "Burmese",
+	"nb": "Norwegian",
+	"ne": "Nepali",
+	"nl": "Dutch",
+	"nn": "Norwegian Nynorsk",
+	"pa": "Punjabi",
+	"pl": "Polish",
+	"pt": "Portuguese",
+	"ro": "Romanian",
+	"ru": "Russian",
+	"si": "Sinhala",
+	"sk": "Slovak",
+	"sl": "Slovenian",
+	"sq": "Albanian",
+	"sr": "Serbian",
+	"sv": "Swedish",
+	"sw": "Swahili",
+	"ta": "Tamil",
+	"te": "Telugu",
+	"th": "Thai",
+	"tl": "Tagalog",
 	"tr": "Turkish",
 	"uk": "Ukrainian",
-	"ru": "Russian",
-	"ja": "Japanese",
-	"ko": "Korean",
+	"ur": "Urdu",
+	"uz": "Uzbek",
+	"vi": "Vietnamese",
+	"yi": "Yiddish",
 	"zh": "Chinese",
+	"zu": "Zulu",
+}
+
+// aliases maps legacy or macrolanguage codes onto an allowed TemplateLanguages key.
+var aliases = map[string]string{
+	"no": "nb", // Norwegian macrolanguage → Bokmål
+	"iw": "he", // legacy Hebrew
+	"in": "id", // legacy Indonesian
+	"ji": "yi", // legacy Yiddish
+	"fil": "tl", // Filipino → Tagalog
 }
 
 // Normalize returns a lowercased code if it is allowed, otherwise "".
 func Normalize(code string) string {
 	c := strings.ToLower(strings.TrimSpace(code))
+	if c == "" {
+		return ""
+	}
+	if mapped, ok := aliases[c]; ok {
+		c = mapped
+	}
 	if _, ok := TemplateLanguages[c]; ok {
 		return c
 	}

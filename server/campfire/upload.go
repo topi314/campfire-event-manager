@@ -19,13 +19,17 @@ const maxUploadBytes = 8 << 20 // 8 MiB
 
 // doMultipart sends a GraphQL multipart request with one file mapped to filePath
 // (e.g. "variables.input.avatarFile") per the GraphQL multipart request spec.
-func (c *Client) doMultipart(ctx context.Context, token, operation, query string, variables map[string]any, filePath, filename, contentType string, data []byte) (json.RawMessage, error) {
+func (c *Client) doMultipart(ctx context.Context, token, operation, query string, variables any, filePath, filename, contentType string, data []byte) (json.RawMessage, error) {
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
-	ops := map[string]any{
-		"query":         query,
-		"operationName": operation,
-		"variables":     variables,
+	ops := struct {
+		Query         string `json:"query"`
+		OperationName string `json:"operationName"`
+		Variables     any    `json:"variables"`
+	}{
+		Query:         query,
+		OperationName: operation,
+		Variables:     variables,
 	}
 	opsJSON, err := json.Marshal(ops)
 	if err != nil {

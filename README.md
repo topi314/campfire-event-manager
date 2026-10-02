@@ -6,7 +6,7 @@ Create Pokémon GO / Campfire meetups from reusable templates. Discord login gat
 
 - **Go** API + embedded Nuxt SPA (same shape as [campfire-map](https://github.com/topi314/campfire-map))
 - **Discord OAuth** + guild/whitelist CA check (from [campfire-tools](https://github.com/topi314/campfire-tools))
-- **Postgres** for Discord sessions and per-user meetup templates
+- **Postgres** for Discord sessions, templates, drafts, and cover images ([sqlc](https://sqlc.dev) + pgx; regenerate with `sqlc generate` or `go generate` from the repo root)
 - Campfire GraphQL at `https://niantic-social-api.nianticlabs.com/graphql`
 
 ## Features

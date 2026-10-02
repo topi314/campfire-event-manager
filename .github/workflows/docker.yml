@@ -12,8 +12,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Docker meta
         id: meta
@@ -27,9 +25,6 @@ jobs:
             type=ref,event=pr
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -49,6 +44,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Frontend + Go build on BUILDPLATFORM; no QEMU needed for RUN steps.
+          provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

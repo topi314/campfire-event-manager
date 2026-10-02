@@ -1,4 +1,5 @@
 .git
+.github
 .idea
 .vscode
 *.exe
@@ -10,3 +11,6 @@ frontend/.nuxt
 frontend/.output
 frontend/dist
 tmp
+README.md
+LICENSE
+

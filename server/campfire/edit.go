@@ -106,7 +106,6 @@ type EditEventInput struct {
 	UserIDs                      []string `json:"userIds"`
 	CampfireLiveEventID          string   `json:"campfireLiveEventId,omitempty"`
 	HasEventPhotoChanged         *bool    `json:"hasEventPhotoChanged,omitempty"`
-	DiscordChannelID             string   `json:"discordChannelId,omitempty"`
 	CreatedByCommunityAmbassador *bool    `json:"createdByCommunityAmbassador,omitempty"`
 	// Avatar is uploaded with the edit as input.avatarFile. Campfire ignores
 	// coverPhotoUrl unless this file is attached and hasEventPhotoChanged is set.

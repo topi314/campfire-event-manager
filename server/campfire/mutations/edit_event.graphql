@@ -10,7 +10,6 @@ mutation EditEventMutation($input: EditEventInput!) {
       details
       address
       coverPhotoUrl
-      photoId
       commentsPermissions
       allInvited
       campfireLiveEventId

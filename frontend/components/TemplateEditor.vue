@@ -22,14 +22,12 @@ const props = withDefaults(
     templateName?: string;
     saving?: boolean;
     submitLabel?: string;
-    authHeaders?: Record<string, string>;
   }>(),
   {
     modelValue: null,
     templateName: "",
     saving: false,
     submitLabel: "Save template",
-    authHeaders: () => ({}),
   },
 );
 
@@ -317,10 +315,7 @@ function onSubmit() {
       <div class="editor-side">
         <div class="field">
           <label>Cover photo (optional)</label>
-          <CoverPhotoField
-            v-model="form.coverPhotoUrl"
-            :auth-headers="authHeaders"
-          />
+          <CoverPhotoField v-model="form.coverPhotoUrl" />
         </div>
         <div class="field" style="margin-bottom: 0">
           <label>Location</label>

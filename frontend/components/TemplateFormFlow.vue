@@ -8,7 +8,6 @@ const props = defineProps<{
 
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
-const { authHeaders } = useSessionToken();
 
 const editing = ref<MeetupTemplate | null>(null);
 const error = ref("");
@@ -122,7 +121,6 @@ function cancelEditor() {
         :template-name="editing?.name || ''"
         :model-value="editing ? parsePayload(editing) : null"
         :saving="saving"
-        :auth-headers="authHeaders()"
         :submit-label="isEdit ? 'Update template' : 'Create template'"
         @save="onSave"
         @cancel="cancelEditor"

@@ -8,12 +8,14 @@ import {
   resolveDraftTextFields,
 } from "~/utils/drafts";
 import { isCampfireTokenError } from "~/composables/useSessionToken";
+import { coverImageSrc } from "~/utils/covers";
 
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { token, authHeaders, openSettings, invalidateToken } = useSessionToken();
 const { timeZone } = usePreferences();
 const { consumeFlash } = useFlash();
+const { apiBase } = useRuntimeConfig().public;
 
 const drafts = ref<MeetupDraftItem[]>([]);
 const error = ref("");
@@ -375,7 +377,7 @@ const draftRows = computed(() =>
     const raw = parseDraftPayload(item);
     const text = resolveDraftTextFields(raw, timeZone.value);
     const name = text.name || "?";
-    const cover = (text.coverPhotoUrl || "").trim();
+    const cover = coverImageSrc(text.coverPhotoUrl, apiBase as string);
     return {
       item,
       name,

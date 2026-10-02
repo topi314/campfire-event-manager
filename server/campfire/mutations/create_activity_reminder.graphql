@@ -1,0 +1,18 @@
+mutation CreateActivityReminderMutation($input: CreateActivityReminderInput!) {
+  createActivityReminder(input: $input) {
+    event {
+      id
+      clubId
+      eventTime
+      eventEndTime
+      location
+      name
+      details
+      address
+      coverPhotoUrl
+      commentsPermissions
+      allInvited
+      campfireLiveEventId
+    }
+  }
+}

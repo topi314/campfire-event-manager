@@ -3,11 +3,13 @@ import type { MeetupPayload, MeetupTemplate, TemplatePublisher } from "~/types";
 import { TEMPLATE_CATEGORY_OPTIONS } from "~/utils/eventCategory";
 import { TEMPLATE_LANGUAGES, templateLanguageLabel } from "~/utils/languages";
 import { formatInstantDate } from "~/utils/datetime";
+import { coverImageSrc } from "~/utils/covers";
 
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { timeZone } = usePreferences();
 const route = useRoute();
+const { apiBase } = useRuntimeConfig().public;
 
 const profile = ref<TemplatePublisher | null>(null);
 const templates = ref<MeetupTemplate[]>([]);
@@ -122,7 +124,7 @@ function categoryOf(t: MeetupTemplate) {
 }
 
 function coverOf(t: MeetupTemplate) {
-  return (parsePayload(t).coverPhotoUrl || "").trim();
+  return coverImageSrc(parsePayload(t).coverPhotoUrl, apiBase as string);
 }
 
 async function addToMine(t: MeetupTemplate) {

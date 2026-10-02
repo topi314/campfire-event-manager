@@ -117,7 +117,7 @@ Create flow (home page):
 4. **Placeholders** — fill any `{{key}}` tokens
 5. **Create** — tweak details and send `createPoiMeetup`
 
-Times: template `startTime` / `endTime` (HH:mm) are combined with the live event’s date, or with today when no live event is linked. Location, invites, and copy come from the template. Cover photos are uploaded via Campfire `uploadFile` and can be removed via `DELETE /api/campfire/upload-image?photoId=…`.
+Times: template `startTime` / `endTime` (HH:mm) are combined with the live event’s date, or with today when no live event is linked. Location, invites, and copy come from the template. Cover photos are stored in our DB (`POST /api/covers`) and attached to Campfire only when creating/editing a meetup.
 
 ### Edit existing
 

@@ -6,6 +6,7 @@ import {
   isBuiltinPlaceholder,
 } from "~/utils/placeholders";
 import { templateLanguageLabel } from "~/utils/languages";
+import { coverImageSrc } from "~/utils/covers";
 
 const props = withDefaults(
   defineProps<{
@@ -29,12 +30,16 @@ const emit = defineEmits<{
   toggleLike: [];
 }>();
 
+const { apiBase } = useRuntimeConfig().public;
+
 const payload = computed((): MeetupPayload => {
   const p = props.template.payload;
   return (typeof p === "string" ? JSON.parse(p) : p) as MeetupPayload;
 });
 
-const cover = computed(() => (payload.value.coverPhotoUrl || "").trim());
+const cover = computed(() =>
+  coverImageSrc(payload.value.coverPhotoUrl, apiBase as string),
+);
 
 const languageLabel = computed(() => templateLanguageLabel(props.template.language));
 

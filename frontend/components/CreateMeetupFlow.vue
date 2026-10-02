@@ -1031,6 +1031,21 @@ async function createMeetup() {
       body: JSON.stringify(body),
     });
     success.value = `Created meetup “${event.name}” (${event.id})`;
+    const postedDraftId = editingDraftId.value;
+    if (postedDraftId != null) {
+      try {
+        await api(`/api/drafts/${postedDraftId}`, {
+          method: "DELETE",
+          headers: authHeaders(),
+        });
+        await loadDrafts();
+      } catch {
+        /* draft cleanup is best-effort */
+      }
+      editingDraftId.value = null;
+    }
+    resetFormAfterDraft();
+    if (props.draftId != null) await navigateTo("/create");
   } catch (e: any) {
     error.value = e.message || "Failed to create meetup";
     if (isCampfireTokenError(e)) invalidateToken();
@@ -1356,10 +1371,7 @@ function templateOptionLabel(t: MeetupTemplate) {
         <div class="editor-side">
           <div class="field">
             <label>Cover photo (optional)</label>
-            <CoverPhotoField
-              v-model="draft.coverPhotoUrl"
-              :auth-headers="authHeaders()"
-            />
+            <CoverPhotoField v-model="draft.coverPhotoUrl" />
           </div>
           <div class="field" style="margin-bottom: 0">
             <label>Location</label>

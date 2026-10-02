@@ -5,4 +5,6 @@ projects:
       - "https://niantic-social-api.nianticlabs.com/graphql":
           headers:
             Authorization: Bearer ${TOKEN}
-    documents: "server/campfire/queries/**/*.graphql"
+    documents:
+      - "server/campfire/queries/**/*.graphql"
+      - "server/campfire/mutations/**/*.graphql"

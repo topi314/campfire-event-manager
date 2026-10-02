@@ -7,11 +7,13 @@ import {
   guessTemplateLanguage,
   templateLanguageLabel,
 } from "~/utils/languages";
+import { coverImageSrc } from "~/utils/covers";
 
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { timeZone } = usePreferences();
 const route = useRoute();
+const { apiBase } = useRuntimeConfig().public;
 
 // Legacy: /templates?edit=123 → /templates/123/edit
 const legacy = route.query.edit;
@@ -61,7 +63,7 @@ function parsePayload(t: MeetupTemplate): MeetupPayload {
 }
 
 function coverOf(t: MeetupTemplate) {
-  return (parsePayload(t).coverPhotoUrl || "").trim();
+  return coverImageSrc(parsePayload(t).coverPhotoUrl, apiBase as string);
 }
 
 function categoryLabel(t: MeetupTemplate) {

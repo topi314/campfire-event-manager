@@ -3,6 +3,7 @@ import type { MeetupPayload, MeetupTemplate } from "~/types";
 import { TEMPLATE_CATEGORY_OPTIONS } from "~/utils/eventCategory";
 import { TEMPLATE_LANGUAGES, templateLanguageLabel } from "~/utils/languages";
 import { formatInstantDate } from "~/utils/datetime";
+import { coverImageSrc } from "~/utils/covers";
 
 const props = defineProps<{
   /** Open this published template in the preview when present. */
@@ -13,6 +14,7 @@ const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { timeZone } = usePreferences();
 const route = useRoute();
+const { apiBase } = useRuntimeConfig().public;
 
 const SORT_OPTIONS = ["published_desc", "updated_desc", "name_asc", "likes_desc"] as const;
 type SortOption = (typeof SORT_OPTIONS)[number];
@@ -211,7 +213,7 @@ function categoryOf(t: MeetupTemplate) {
 }
 
 function coverOf(t: MeetupTemplate) {
-  return (parsePayload(t).coverPhotoUrl || "").trim();
+  return coverImageSrc(parsePayload(t).coverPhotoUrl, apiBase as string);
 }
 
 async function addToMine(t: MeetupTemplate) {

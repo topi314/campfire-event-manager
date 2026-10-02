@@ -2,6 +2,7 @@ package campfire
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -39,101 +40,6 @@ func (c *Client) LiveEvents(ctx context.Context, token string) ([]LiveEvent, err
 		events = []LiveEvent{}
 	}
 	return events, nil
-}
-
-type MapPOI struct {
-	ID       string  `json:"id"`
-	Type     string  `json:"type"`
-	Name     string  `json:"name"`
-	ImageURL string  `json:"imageUrl,omitempty"`
-	Lat      float64 `json:"lat"`
-	Lng      float64 `json:"lng"`
-}
-
-type rawMapObject struct {
-	ID            string `json:"id"`
-	MapObjectType string `json:"mapObjectType"`
-	PgoGym        *struct {
-		Name     string `json:"name"`
-		ImageURL string `json:"imageUrl"`
-		Location LatLng `json:"location"`
-	} `json:"pgoGym"`
-	PgoPowerspot *struct {
-		Name     string `json:"name"`
-		Location LatLng `json:"location"`
-	} `json:"pgoPowerspot"`
-	PgoPokestop *struct {
-		Name     string `json:"name"`
-		ImageURL string `json:"imageUrl"`
-		Location LatLng `json:"location"`
-	} `json:"pgoPokestop"`
-}
-
-type mapObjectsResp struct {
-	MapObjectsInLatLngBounds []rawMapObject `json:"mapObjectsInLatLngBounds"`
-}
-
-// MapObjectsInBounds loads gyms/stops/powerspots in the given viewport.
-func (c *Client) MapObjectsInBounds(ctx context.Context, token string, south, west, north, east float64) ([]MapPOI, error) {
-	vars := map[string]any{
-		"mapObjectsInput": map[string]any{
-			"latLngBounds": map[string]any{
-				"southwest": map[string]float64{"latitude": south, "longitude": west},
-				"northeast": map[string]float64{"latitude": north, "longitude": east},
-			},
-		},
-	}
-	var resp mapObjectsResp
-	if err := c.Do(ctx, token, queryMapObjects, vars, &resp); err != nil {
-		// Fallback: flat LatLngBounds field names used by some Campfire ops.
-		vars = map[string]any{
-			"mapObjectsInput": map[string]any{
-				"latLngBounds": map[string]float64{
-					"latitudeSouthwest":  south,
-					"longitudeSouthwest": west,
-					"latitudeNortheast":  north,
-					"longitudeNortheast": east,
-				},
-			},
-		}
-		if err2 := c.Do(ctx, token, queryMapObjects, vars, &resp); err2 != nil {
-			return nil, fmt.Errorf("%v; fallback: %w", err, err2)
-		}
-	}
-
-	out := make([]MapPOI, 0, len(resp.MapObjectsInLatLngBounds))
-	for _, mo := range resp.MapObjectsInLatLngBounds {
-		poi := MapPOI{ID: mo.ID, Type: mo.MapObjectType}
-		switch {
-		case mo.PgoGym != nil:
-			poi.Type = "gym"
-			poi.Name = mo.PgoGym.Name
-			poi.ImageURL = mo.PgoGym.ImageURL
-			poi.Lat = mo.PgoGym.Location.Latitude
-			poi.Lng = mo.PgoGym.Location.Longitude
-		case mo.PgoPowerspot != nil:
-			poi.Type = "powerspot"
-			poi.Name = mo.PgoPowerspot.Name
-			poi.Lat = mo.PgoPowerspot.Location.Latitude
-			poi.Lng = mo.PgoPowerspot.Location.Longitude
-		case mo.PgoPokestop != nil:
-			poi.Type = "pokestop"
-			poi.Name = mo.PgoPokestop.Name
-			poi.ImageURL = mo.PgoPokestop.ImageURL
-			poi.Lat = mo.PgoPokestop.Location.Latitude
-			poi.Lng = mo.PgoPokestop.Location.Longitude
-		default:
-			continue
-		}
-		if poi.ID == "" || (poi.Lat == 0 && poi.Lng == 0) {
-			continue
-		}
-		if poi.Name == "" {
-			poi.Name = poi.Type
-		}
-		out = append(out, poi)
-	}
-	return out, nil
 }
 
 type ClubMember struct {
@@ -201,27 +107,25 @@ func (c *Client) SearchClubMembers(ctx context.Context, token, clubID, search st
 	return members, nil
 }
 
-// CreatePoiEventInput is the GraphQL input for createPoiMeetup.
-// Campfire rejects location/coverPhotoUrl/mapObjectId here — freeform pins
-// are applied afterwards with editEvent (location as "[lng, lat]").
-// DropID is required by the schema; pass a map-object id to anchor on a
-// gym/stop, or "" for a freeform pin.
-type CreatePoiEventInput struct {
+// CreateActivityReminderInput is Campfire's freeform meetup create
+// (what the app uses when not anchoring on a POI drop). Location is
+// "[lng, lat]"; cover is multipart input.avatarFile — one call, no edit.
+type CreateActivityReminderInput struct {
 	ClubID                       string   `json:"clubId"`
 	Name                         string   `json:"name"`
 	Details                      string   `json:"details"`
 	EventTime                    string   `json:"eventTime"`
 	EventEndTime                 string   `json:"eventEndTime,omitempty"`
-	DropID                       string   `json:"dropId"`
+	Location                     string   `json:"location,omitempty"` // "[lng, lat]"
 	Address                      string   `json:"address"`
 	PlaceID                      string   `json:"placeId,omitempty"`
+	CoverPhotoURL                string   `json:"coverPhotoUrl"`
 	CommentsPermissions          string   `json:"commentsPermissions,omitempty"`
 	AllInvited                   *bool    `json:"allInvited,omitempty"`
 	UserIDs                      []string `json:"userIds"`
-	Game                         string   `json:"game"`
 	CampfireLiveEventID          string   `json:"campfireLiveEventId,omitempty"`
 	CreatedByCommunityAmbassador *bool    `json:"createdByCommunityAmbassador,omitempty"`
-	DiscordChannelID             string   `json:"discordChannelId,omitempty"`
+	Avatar                       *AvatarUpload `json:"-"`
 }
 
 // NormalizeCommentsPermissions maps UI / template values to Campfire's
@@ -252,20 +156,66 @@ type CreatedEvent struct {
 	Details       string `json:"details"`
 	Address       string `json:"address"`
 	CoverPhotoURL string `json:"coverPhotoUrl,omitempty"`
-	PhotoID       string `json:"photoId,omitempty"`
 }
 
-type createMeetupResp struct {
-	CreatePoiMeetup struct {
+type createActivityReminderResp struct {
+	CreateActivityReminder struct {
 		Event *CreatedEvent `json:"event"`
-	} `json:"createPoiMeetup"`
+	} `json:"createActivityReminder"`
 }
 
-func (c *Client) CreatePoiMeetup(ctx context.Context, token string, input CreatePoiEventInput) (*CreatedEvent, error) {
-	vars := map[string]any{"input": input}
-	var resp createMeetupResp
-	if err := c.Do(ctx, token, mutationCreatePoiMeetup, vars, &resp); err != nil {
+func (c *Client) CreateActivityReminder(ctx context.Context, token string, input CreateActivityReminderInput) (*CreatedEvent, error) {
+	avatar := input.Avatar
+	input.Avatar = nil
+	input.CoverPhotoURL = ""
+
+	raw, err := json.Marshal(input)
+	if err != nil {
 		return nil, err
 	}
-	return resp.CreatePoiMeetup.Event, nil
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+
+	vars := map[string]any{
+		"input": fields,
+	}
+
+	if avatar != nil && len(avatar.Data) > 0 {
+		fields["avatarFile"] = nil
+		filename := strings.TrimSpace(avatar.Filename)
+		if filename == "" {
+			filename = "cover.jpg"
+		}
+		contentType := strings.TrimSpace(avatar.ContentType)
+		if contentType == "" {
+			contentType = "image/jpeg"
+		}
+		data, err := c.doMultipart(
+			ctx,
+			token,
+			"CreateActivityReminderMutation",
+			mutationCreateActivityReminder,
+			vars,
+			"variables.input.avatarFile",
+			filename,
+			contentType,
+			avatar.Data,
+		)
+		if err != nil {
+			return nil, err
+		}
+		var resp createActivityReminderResp
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return nil, fmt.Errorf("decode createActivityReminder: %w", err)
+		}
+		return resp.CreateActivityReminder.Event, nil
+	}
+
+	var resp createActivityReminderResp
+	if err := c.Do(ctx, token, mutationCreateActivityReminder, vars, &resp); err != nil {
+		return nil, err
+	}
+	return resp.CreateActivityReminder.Event, nil
 }

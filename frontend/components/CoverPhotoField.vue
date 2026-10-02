@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { coverImageSrc, parseCoverImageId } from "~/utils/covers";
+
 const props = defineProps<{
   modelValue: string;
-  authHeaders: Record<string, string>;
 }>();
 
 const emit = defineEmits<{
@@ -9,7 +10,6 @@ const emit = defineEmits<{
 }>();
 
 const { apiBase } = useRuntimeConfig().public;
-const { invalidateToken, openSettings } = useSessionToken();
 const fileInput = ref<HTMLInputElement | null>(null);
 const dropZone = ref<HTMLElement | null>(null);
 const uploading = ref(false);
@@ -17,10 +17,11 @@ const removing = ref(false);
 const pasting = ref(false);
 const error = ref("");
 const localPreview = ref("");
-const photoId = ref("");
 const dragOver = ref(false);
 
-const previewSrc = computed(() => localPreview.value || props.modelValue || "");
+const previewSrc = computed(
+  () => localPreview.value || coverImageSrc(props.modelValue, apiBase as string),
+);
 const busy = computed(() => uploading.value || removing.value || pasting.value);
 
 const statusLabel = computed(() => {
@@ -33,10 +34,7 @@ const statusLabel = computed(() => {
 watch(
   () => props.modelValue,
   (v) => {
-    if (!v) {
-      localPreview.value = "";
-      photoId.value = "";
-    }
+    if (!v) localPreview.value = "";
   },
 );
 
@@ -73,11 +71,6 @@ function fileFromDrop(ev: DragEvent): File | null {
 
 async function uploadImageFile(file: File) {
   error.value = "";
-  if (!props.authHeaders.Authorization) {
-    error.value = "Add your Campfire JWT in Settings before uploading";
-    openSettings({ focusToken: true });
-    return;
-  }
   if (!file.type.startsWith("image/")) {
     error.value = "Please choose an image file";
     return;
@@ -93,22 +86,14 @@ async function uploadImageFile(file: File) {
 
     const fd = new FormData();
     fd.append("file", file, file.name);
-    const res = await fetch(`${apiBase}/api/campfire/upload-image`, {
+    const res = await fetch(`${apiBase}/api/covers`, {
       method: "POST",
-      headers: {
-        ...props.authHeaders,
-        Accept: "application/json",
-      },
+      headers: { Accept: "application/json" },
       credentials: "include",
       body: fd,
     });
     const text = await res.text();
-    let data: {
-      url?: string;
-      permanentUrl?: string;
-      photoId?: string;
-      error?: string;
-    } = {};
+    let data: { url?: string; error?: string } = {};
     try {
       data = JSON.parse(text);
     } catch {
@@ -117,18 +102,13 @@ async function uploadImageFile(file: File) {
     if (!res.ok) {
       throw new Error(data.error || text || res.statusText);
     }
-    const next = (data.permanentUrl || data.url || "").trim();
+    const next = (data.url || "").trim();
     if (!next) throw new Error("Upload succeeded but no URL returned");
-    photoId.value = (data.photoId || "").trim();
     emit("update:modelValue", next);
-    localPreview.value = next;
+    localPreview.value = coverImageSrc(next, apiBase as string);
   } catch (e: any) {
     error.value = e.message || "Upload failed";
     localPreview.value = "";
-    photoId.value = "";
-    if (/invalid Campfire token|missing Campfire Authorization/i.test(e.message || "")) {
-      invalidateToken();
-    }
   } finally {
     uploading.value = false;
   }
@@ -204,21 +184,15 @@ function onDragLeave(ev: DragEvent) {
 
 async function remove() {
   error.value = "";
-  const id = photoId.value.trim();
-  if (id && props.authHeaders.Authorization) {
+  const id = parseCoverImageId(props.modelValue);
+  if (id != null) {
     removing.value = true;
     try {
-      const res = await fetch(
-        `${apiBase}/api/campfire/upload-image?photoId=${encodeURIComponent(id)}`,
-        {
-          method: "DELETE",
-          headers: {
-            ...props.authHeaders,
-            Accept: "application/json",
-          },
-          credentials: "include",
-        },
-      );
+      const res = await fetch(`${apiBase}/api/covers/${id}`, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+        credentials: "include",
+      });
       if (!res.ok && res.status !== 204) {
         const text = await res.text();
         let data: { error?: string } = {};
@@ -239,7 +213,6 @@ async function remove() {
   }
   emit("update:modelValue", "");
   localPreview.value = "";
-  photoId.value = "";
 }
 </script>
 

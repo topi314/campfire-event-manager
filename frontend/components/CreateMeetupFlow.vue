@@ -11,17 +11,10 @@ import type {
 } from "~/types";
 import type { LatLngPoint } from "~/components/LocationPicker.vue";
 import {
-  addMinutesToLocal,
-  calendarDateFromLiveEvent,
-  combineDayAndTime,
   formatLocalDateTime,
   formatLocalDateTimeParts,
-  parseCalendarDate,
   parseLocalDateTime,
-  parseTimeOfDay,
   partsInTimeZone,
-  toISO,
-  type CalendarDate,
 } from "~/utils/datetime";
 import {
   applyPlaceholders,
@@ -35,6 +28,7 @@ import {
 import { DEFAULT_LOCATION_JITTER_METERS, parseCampfireLocation } from "~/utils/location";
 import { categoryFromLiveEventName, categoryMatchOrder } from "~/utils/eventCategory";
 import { buildMeetupBodyFromDraft, parseDraftPayload } from "~/utils/drafts";
+import { fetchMeetupSchedule } from "~/utils/meetupSchedule";
 import { isCampfireTokenError } from "~/composables/useSessionToken";
 
 const props = defineProps<{
@@ -308,13 +302,24 @@ function clockFromLocalInput(local: string): string {
   return `${String(parts.hours).padStart(2, "0")}:${String(parts.minutes).padStart(2, "0")}`;
 }
 
+function draftCalendarDate(): string {
+  const parts = parseLocalDateTime(draft.eventTime);
+  if (parts) {
+    return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  }
+  return "";
+}
+
 function builtinPlaceholderContext() {
   const p = rawPayload.value;
+  const dayParts = parseLocalDateTime(draft.eventTime);
   return {
     clubName: selectedClub.value?.name || "",
     liveEventName: selectedLiveEvent.value?.eventName || "",
     category: liveEventCategory.value || p?.category || "",
-    date: meetupCalendarDay(),
+    date: dayParts
+      ? { year: dayParts.year, month: dayParts.month, day: dayParts.day }
+      : undefined,
     startTime: clockFromLocalInput(draft.eventTime) || p?.startTime || "",
     endTime: clockFromLocalInput(draft.eventEndTime) || p?.endTime || "",
     timeZone: timeZone.value,
@@ -348,76 +353,19 @@ function resolvedDraftText() {
 
 const previewText = computed(() => resolvedDraftText());
 
-function timesFromPayload(p: MeetupPayload, day: CalendarDate) {
-  const startTod =
-    parseTimeOfDay(p.startTime) ||
-    parseTimeOfDay(p.eventTime) ||
-    { hours: 14, minutes: 0 };
-  const endTod = parseTimeOfDay(p.endTime) || parseTimeOfDay(p.eventEndTime);
-
-  const start = combineDayAndTime(day, startTod);
-  let end = "";
-  if (endTod) {
-    end = combineDayAndTime(day, endTod);
-    if (fromLocalOrIso(end) <= fromLocalOrIso(start)) {
-      end = addMinutesToLocal(end, 24 * 60);
-    }
-  }
-  return { start, end };
-}
-
-function fromLocalOrIso(value: string): number {
-  const parts = parseLocalDateTime(value);
-  if (parts) {
-    return new Date(
-      parts.year,
-      parts.month - 1,
-      parts.day,
-      parts.hours,
-      parts.minutes,
-      parts.seconds || 0,
-    ).getTime();
-  }
-  return new Date(value).getTime();
-}
-
-function todayCalendarDate(): CalendarDate {
-  const parts = partsInTimeZone(new Date(), timeZone.value);
-  if (parts) {
-    return { year: parts.year, month: parts.month, day: parts.day };
-  }
-  const d = new Date();
-  return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
-}
-
-function meetupCalendarDay(): CalendarDate {
-  const ev = selectedLiveEvent.value;
-  return ev ? calendarDateFromLiveEvent(ev, timeZone.value) : todayCalendarDate();
-}
-
-function liveEventDefaultTimes(ev: LiveEvent): { start: string; end: string } {
-  const tz = timeZone.value;
-  const day = calendarDateFromLiveEvent(ev, tz);
-  const startTod =
-    parseTimeOfDay(ev.localStartTime) ||
-    parseTimeOfDay(ev.startTimestamp, tz) ||
-    { hours: 0, minutes: 0 };
-  const endTod =
-    parseTimeOfDay(ev.localEndTime) || parseTimeOfDay(ev.endTimestamp, tz);
-  const endDay =
-    parseCalendarDate(ev.localEndTime) ||
-    parseCalendarDate(ev.endTimestamp) ||
-    day;
-
-  const start = combineDayAndTime(day, startTod);
-  let end = "";
-  if (endTod) {
-    end = combineDayAndTime(endDay, endTod);
-    if (fromLocalOrIso(end) <= fromLocalOrIso(start)) {
-      end = addMinutesToLocal(end, 24 * 60);
-    }
-  }
-  return { start, end };
+async function resolveSchedule(opts?: {
+  liveEvent?: LiveEvent | null;
+  startTime?: string;
+  endTime?: string;
+  date?: string;
+}) {
+  return fetchMeetupSchedule(api, {
+    timeZone: timeZone.value,
+    liveEvent: opts?.liveEvent ?? selectedLiveEvent.value,
+    startTime: opts?.startTime,
+    endTime: opts?.endTime,
+    date: opts?.date,
+  });
 }
 
 function resetPlaceholders() {
@@ -427,7 +375,7 @@ function resetPlaceholders() {
   }
 }
 
-function blankDraftStandalone() {
+async function blankDraftStandalone() {
   draft.name = "";
   draft.details = "";
   draft.address = "";
@@ -435,15 +383,15 @@ function blankDraftStandalone() {
   draft.commentsPermissions = "ORGANIZERS_ONLY";
   draft.allInvited = true;
   draft.createdByCommunityAmbassador = true;
-  const day = todayCalendarDate();
-  draft.eventTime = combineDayAndTime(day, { hours: 14, minutes: 0 });
-  draft.eventEndTime = combineDayAndTime(day, { hours: 17, minutes: 0 });
+  const times = await resolveSchedule({ liveEvent: null });
+  draft.eventTime = times.eventTime;
+  draft.eventEndTime = times.eventEndTime;
   draft.locationJitterMeters = DEFAULT_LOCATION_JITTER_METERS;
   draft.campfireLiveEventId = "";
   draftLocation.value = null;
 }
 
-function blankDraftFromLiveEvent(ev: LiveEvent) {
+async function blankDraftFromLiveEvent(ev: LiveEvent) {
   draft.name = "";
   draft.details = "";
   draft.address = "";
@@ -451,20 +399,20 @@ function blankDraftFromLiveEvent(ev: LiveEvent) {
   draft.commentsPermissions = "ORGANIZERS_ONLY";
   draft.allInvited = true;
   draft.createdByCommunityAmbassador = true;
-  const times = liveEventDefaultTimes(ev);
-  draft.eventTime = times.start;
-  draft.eventEndTime = times.end;
+  const times = await resolveSchedule({ liveEvent: ev });
+  draft.eventTime = times.eventTime;
+  draft.eventEndTime = times.eventEndTime;
   draft.locationJitterMeters = DEFAULT_LOCATION_JITTER_METERS;
   draft.campfireLiveEventId = ev.id;
   draftLocation.value = null;
 }
 
-function blankDraftForSelection() {
-  if (selectedLiveEvent.value) blankDraftFromLiveEvent(selectedLiveEvent.value);
-  else blankDraftStandalone();
+async function blankDraftForSelection() {
+  if (selectedLiveEvent.value) await blankDraftFromLiveEvent(selectedLiveEvent.value);
+  else await blankDraftStandalone();
 }
 
-function hydrateDraft() {
+async function hydrateDraft() {
   if (!selectedClub.value) {
     draftReady.value = false;
     draftLocation.value = null;
@@ -472,10 +420,13 @@ function hydrateDraft() {
   }
 
   const ev = selectedLiveEvent.value;
-  const day = meetupCalendarDay();
   const raw = rawPayload.value;
   if (selectedTemplate.value && raw) {
-    const times = timesFromPayload(raw, day);
+    const times = await resolveSchedule({
+      liveEvent: ev,
+      startTime: raw.startTime || raw.eventTime,
+      endTime: raw.endTime || raw.eventEndTime,
+    });
     // Load raw template copy so {{placeholders}} stay visible until Preview / submit.
     draft.name = raw.name || "";
     draft.details = raw.details || "";
@@ -484,8 +435,8 @@ function hydrateDraft() {
     draft.commentsPermissions = raw.commentsPermissions || "ORGANIZERS_ONLY";
     draft.allInvited = raw.allInvited ?? true;
     draft.createdByCommunityAmbassador = raw.createdByCommunityAmbassador ?? true;
-    draft.eventTime = times.start;
-    draft.eventEndTime = times.end;
+    draft.eventTime = times.eventTime;
+    draft.eventEndTime = times.eventEndTime;
     draft.campfireLiveEventId = ev?.id || "";
     draft.locationJitterMeters =
       raw.locationJitterMeters != null
@@ -504,11 +455,11 @@ function hydrateDraft() {
   }
 
   if (!draftReady.value) {
-    blankDraftForSelection();
+    await blankDraftForSelection();
   } else if (ev) {
-    const times = liveEventDefaultTimes(ev);
-    draft.eventTime = times.start;
-    draft.eventEndTime = times.end;
+    const times = await resolveSchedule({ liveEvent: ev });
+    draft.eventTime = times.eventTime;
+    draft.eventEndTime = times.eventEndTime;
     draft.campfireLiveEventId = ev.id;
   } else {
     draft.campfireLiveEventId = "";
@@ -533,19 +484,16 @@ function autoSelectTemplate(force = false) {
 }
 
 /** Apply selected template onto the meetup being edited (keeps its calendar day). */
-function applyTemplateToEdit() {
+async function applyTemplateToEdit() {
   const raw = rawPayload.value;
   if (!raw || !selectedEventId.value || !draftReady.value) return;
 
-  const day = draft.eventTime
-    ? (() => {
-        const parts = parseLocalDateTime(draft.eventTime);
-        return parts
-          ? { year: parts.year, month: parts.month, day: parts.day }
-          : meetupCalendarDay();
-      })()
-    : meetupCalendarDay();
-  const times = timesFromPayload(raw, day);
+  const times = await resolveSchedule({
+    liveEvent: selectedLiveEvent.value,
+    startTime: raw.startTime || raw.eventTime,
+    endTime: raw.endTime || raw.eventEndTime,
+    date: draftCalendarDate() || undefined,
+  });
 
   draft.name = raw.name || "";
   draft.details = raw.details || "";
@@ -554,8 +502,8 @@ function applyTemplateToEdit() {
   draft.commentsPermissions = raw.commentsPermissions || "ORGANIZERS_ONLY";
   draft.allInvited = raw.allInvited ?? true;
   draft.createdByCommunityAmbassador = raw.createdByCommunityAmbassador ?? true;
-  draft.eventTime = times.start;
-  draft.eventEndTime = times.end;
+  draft.eventTime = times.eventTime;
+  draft.eventEndTime = times.eventEndTime;
   if (raw.latitude != null && raw.longitude != null) {
     draftLocation.value = { lat: raw.latitude, lng: raw.longitude };
   }
@@ -573,10 +521,12 @@ watch(selectedClubId, () => {
   }
   void loadClubEvents();
   if (editingDraftId.value != null) return;
-  detailsTouched.value = false;
-  beginProgrammaticUpdate();
-  hydrateDraft();
-  endProgrammaticUpdate();
+  // Only bootstrap the form on first club pick — changing clubs must not wipe
+  // cover photo / details the user already filled in.
+  if (!draftReady.value && selectedClub.value) {
+    beginProgrammaticUpdate();
+    void hydrateDraft().finally(() => endProgrammaticUpdate());
+  }
 });
 
 watch(preferredClubId, (preferred) => {
@@ -598,14 +548,12 @@ watch(selectedLiveEventId, () => {
       selectedTemplateId.value = "";
     }
     // Re-apply even when the template id is unchanged (new event times / name).
-    hydrateDraft();
-    endProgrammaticUpdate();
+    void hydrateDraft().finally(() => endProgrammaticUpdate());
     return;
   }
 
   beginProgrammaticUpdate();
-  hydrateDraft();
-  endProgrammaticUpdate();
+  void hydrateDraft().finally(() => endProgrammaticUpdate());
 });
 
 watch(selectedTemplateId, (id) => {
@@ -617,21 +565,22 @@ watch(selectedTemplateId, (id) => {
   textViewMode.value = "edit";
   if (mode.value === "edit") {
     if (id && selectedEventId.value && draftReady.value) {
-      applyTemplateToEdit();
+      void applyTemplateToEdit();
     }
     return;
   }
   if (!id) {
     if (selectedClub.value) {
-      blankDraftForSelection();
-      draftReady.value = true;
+      void blankDraftForSelection().then(() => {
+        draftReady.value = true;
+      });
     } else {
       draftReady.value = false;
       draftLocation.value = null;
     }
     return;
   }
-  hydrateDraft();
+  void hydrateDraft();
 });
 
 watch(
@@ -679,7 +628,8 @@ watch(mode, (next, prev) => {
   clearEditDraft();
   void loadClubEvents();
   if (next === "create" && selectedClub.value) {
-    hydrateDraft();
+    void hydrateDraft().finally(() => endProgrammaticUpdate());
+    return;
   }
   endProgrammaticUpdate();
 });
@@ -820,9 +770,9 @@ const liveEventIdsWithDraft = computed(() => {
 function liveEventOptionLabel(ev: LiveEvent) {
   const hasMeetup = liveEventIdsWithMeetup.value.has(ev.id);
   const hasDraft = liveEventIdsWithDraft.value.has(ev.id);
-  if (hasMeetup && hasDraft) return `${ev.eventName} · meetup + draft`;
-  if (hasMeetup) return `${ev.eventName} · already has meetup`;
-  if (hasDraft) return `${ev.eventName} · has draft`;
+  if (hasMeetup && hasDraft) return `${ev.eventName} (has meetup) (has draft)`;
+  if (hasMeetup) return `${ev.eventName} (has meetup)`;
+  if (hasDraft) return `${ev.eventName} (has draft)`;
   return ev.eventName;
 }
 
@@ -863,8 +813,8 @@ function buildEditBody(): EditMeetupInput {
   return {
     name: draft.name.trim(),
     details: draft.details,
-    eventTime: toISO(draft.eventTime, timeZone.value),
-    eventEndTime: draft.eventEndTime ? toISO(draft.eventEndTime, timeZone.value) : undefined,
+    eventTime: draft.eventTime,
+    eventEndTime: draft.eventEndTime || undefined,
     latitude: draftLocation.value!.lat,
     longitude: draftLocation.value!.lng,
     address: draft.address || undefined,
@@ -919,15 +869,20 @@ function resetFormAfterDraft() {
   beginProgrammaticUpdate();
   selectedTemplateId.value = "";
   if (selectedClub.value) {
-    blankDraftForSelection();
-    draftReady.value = true;
+    void blankDraftForSelection().then(() => {
+      draftReady.value = true;
+      nextTick(() => {
+        autoSelectTemplate();
+        endProgrammaticUpdate();
+      });
+    });
   } else {
     draftReady.value = false;
+    nextTick(() => {
+      autoSelectTemplate();
+      endProgrammaticUpdate();
+    });
   }
-  nextTick(() => {
-    autoSelectTemplate();
-    endProgrammaticUpdate();
-  });
 }
 
 function resolveDraftTemplateId(p: DraftMeetupPayload): number | "" {
@@ -1711,6 +1666,12 @@ function templateOptionLabel(t: MeetupTemplate) {
   }
   .placeholder-grid {
     grid-template-columns: 1fr;
+  }
+  .field-details {
+    min-height: 14rem;
+  }
+  .field-details textarea {
+    min-height: 12rem;
   }
   .editor-side :deep(.location-map) {
     height: 220px;

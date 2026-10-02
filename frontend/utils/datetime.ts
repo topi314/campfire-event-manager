@@ -179,6 +179,27 @@ export function parseTimeOfDay(
   return { hours: d.getHours(), minutes: d.getMinutes() };
 }
 
+/**
+ * Clock time only — HH:mm or offset-less local datetime.
+ * Rejects absolute ISO timestamps (Campfire worldwide windows become early morning locally).
+ */
+export function parseWallClockTimeOfDay(value: string | undefined | null): TimeOfDay | null {
+  if (!value?.trim()) return null;
+  const trimmed = value.trim();
+  if (/[zZ]|[+-]\d{2}:?\d{2}/.test(trimmed)) return null;
+
+  const hm = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (hm) {
+    return { hours: Number(hm[1]), minutes: Number(hm[2]) };
+  }
+
+  const localParts = parseLocalDateTime(trimmed);
+  if (localParts && /T|\s\d{2}:/.test(trimmed)) {
+    return { hours: localParts.hours, minutes: localParts.minutes };
+  }
+  return null;
+}
+
 export function formatTimeOfDay(t: TimeOfDay): string {
   return `${pad(t.hours)}:${pad(t.minutes)}`;
 }
@@ -197,8 +218,8 @@ export function parseCalendarDate(value: string | undefined | null): CalendarDat
 
 /**
  * Calendar day for applying template clock times.
- * Prefers Campfire `localStartTime`, then date prefix of `startTimestamp`,
- * then the instant in `timeZone` (or browser local).
+ * Prefers Campfire `localStartTime`, then the instant in `timeZone`,
+ * then the UTC date prefix of `startTimestamp` as a last resort.
  */
 export function calendarDateFromLiveEvent(
   ev: {
@@ -207,21 +228,28 @@ export function calendarDateFromLiveEvent(
   },
   timeZone?: string,
 ): CalendarDate {
+  const fromLocal = parseCalendarDate(ev.localStartTime);
+  if (fromLocal) return fromLocal;
+
+  const d = new Date(ev.startTimestamp);
+  if (!Number.isNaN(d.getTime())) {
+    if (timeZone) {
+      const z = partsInTimeZone(d, timeZone);
+      if (z) return { year: z.year, month: z.month, day: z.day };
+    }
+    return {
+      year: d.getFullYear(),
+      month: d.getMonth() + 1,
+      day: d.getDate(),
+    };
+  }
+
   return (
-    parseCalendarDate(ev.localStartTime) ||
-    parseCalendarDate(ev.startTimestamp) ||
-    (() => {
-      const d = new Date(ev.startTimestamp);
-      if (timeZone) {
-        const z = partsInTimeZone(d, timeZone);
-        if (z) return { year: z.year, month: z.month, day: z.day };
-      }
-      return {
-        year: d.getFullYear(),
-        month: d.getMonth() + 1,
-        day: d.getDate(),
-      };
-    })()
+    parseCalendarDate(ev.startTimestamp) || {
+      year: new Date().getFullYear(),
+      month: new Date().getMonth() + 1,
+      day: new Date().getDate(),
+    }
   );
 }
 

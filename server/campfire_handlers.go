@@ -213,6 +213,12 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	eventTime, eventEndTime, err := s.resolveMeetupCampfireTimes(r, eventTime, body.EventEndTime, body.TimeZone)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event time: "+err.Error())
+		return
+	}
+
 	name, details, address, cover := s.applyMeetupPlaceholders(
 		r,
 		name,
@@ -222,7 +228,7 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		body.Latitude,
 		body.Longitude,
 		eventTime,
-		body.EventEndTime,
+		eventEndTime,
 		meetupPlaceholderMeta{
 			ClubName:          body.ClubName,
 			LiveEventName:     body.LiveEventName,
@@ -258,7 +264,7 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		Name:                         name,
 		Details:                      details,
 		EventTime:                    eventTime,
-		EventEndTime:                 strings.TrimSpace(body.EventEndTime),
+		EventEndTime:                 eventEndTime,
 		DropID:                       mapObjectID,
 		Address:                      address,
 		PlaceID:                      strings.TrimSpace(body.PlaceID),
@@ -296,7 +302,7 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		Name:                         name,
 		Details:                      details,
 		EventTime:                    eventTime,
-		EventEndTime:                 strings.TrimSpace(body.EventEndTime),
+		EventEndTime:                 eventEndTime,
 		Location:                     campfire.FormatEditLocation(lat, lng),
 		Address:                      address,
 		PlaceID:                      strings.TrimSpace(body.PlaceID),
@@ -370,6 +376,12 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	eventTime, eventEndTime, err := s.resolveMeetupCampfireTimes(r, eventTime, body.EventEndTime, body.TimeZone)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event time: "+err.Error())
+		return
+	}
+
 	name, details, address, cover := s.applyMeetupPlaceholders(
 		r,
 		name,
@@ -379,7 +391,7 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 		body.Latitude,
 		body.Longitude,
 		eventTime,
-		body.EventEndTime,
+		eventEndTime,
 		meetupPlaceholderMeta{
 			ClubName:          body.ClubName,
 			LiveEventName:     body.LiveEventName,
@@ -412,7 +424,7 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 		Name:                         name,
 		Details:                      details,
 		EventTime:                    eventTime,
-		EventEndTime:                 strings.TrimSpace(body.EventEndTime),
+		EventEndTime:                 eventEndTime,
 		Location:                     campfire.FormatEditLocation(*body.Latitude, *body.Longitude),
 		Address:                      address,
 		PlaceID:                      strings.TrimSpace(body.PlaceID),

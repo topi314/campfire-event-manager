@@ -3,7 +3,6 @@ import {
   formatLocalDateTime,
   formatTimeOfDay,
   parseLocalDateTime,
-  toISO,
 } from "~/utils/datetime";
 import { randomOffsetLatLng } from "~/utils/location";
 import {
@@ -67,7 +66,9 @@ export function resolveDraftDisplay(
   return resolveDraftTextFields(parseDraftPayload(item), timeZone);
 }
 
-/** Build create-meetup API body with unresolved {{tokens}} for server-side fill. */
+/** Build create-meetup API body with unresolved {{tokens}} for server-side fill.
+ *  eventTime/eventEndTime stay as wall-clock (datetime-local); the API converts via timeZone.
+ */
 export function buildMeetupBodyFromDraft(
   item: DraftMeetupPayload,
   timeZone?: string,
@@ -78,8 +79,8 @@ export function buildMeetupBodyFromDraft(
     clubId: item.clubId,
     name: item.name.trim(),
     details: item.details,
-    eventTime: toISO(item.eventTime, timeZone),
-    eventEndTime: item.eventEndTime ? toISO(item.eventEndTime, timeZone) : undefined,
+    eventTime: item.eventTime,
+    eventEndTime: item.eventEndTime || undefined,
     latitude: jittered.lat,
     longitude: jittered.lng,
     address: item.address || undefined,

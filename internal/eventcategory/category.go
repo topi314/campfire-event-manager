@@ -42,6 +42,34 @@ var Ordered = []string{
 	"Spotlight Hour",
 }
 
+// Clock is a wall-clock time-of-day.
+type Clock struct {
+	Hour   int
+	Minute int
+}
+
+// DefaultClock returns the usual meetup hours for a live-event category.
+// Local-hour events (Raid Hour, Spotlight Hour, Max Monday) are always 18:00–19:00
+// in the player's timezone — Campfire's startTimestamp is a worldwide window.
+func DefaultClock(category string) (start, end Clock) {
+	switch strings.TrimSpace(category) {
+	case "Raid Hour", "Spotlight Hour", "Max Monday":
+		return Clock{18, 0}, Clock{19, 0}
+	default:
+		return Clock{14, 0}, Clock{17, 0}
+	}
+}
+
+// IsFixedLocalHour reports categories whose play time is always 18:00–19:00 local.
+func IsFixedLocalHour(category string) bool {
+	switch strings.TrimSpace(category) {
+	case "Raid Hour", "Spotlight Hour", "Max Monday":
+		return true
+	default:
+		return false
+	}
+}
+
 // CategoryFallbacks returns alternate categories when no template matches exactly.
 func CategoryFallbacks(category string) []string {
 	switch strings.TrimSpace(category) {

@@ -1,6 +1,4 @@
 <script setup lang="ts">
-const MAX_COVER_PX = 512;
-
 const props = defineProps<{
   modelValue: string;
   authHeaders: Record<string, string>;
@@ -44,42 +42,6 @@ watch(
 
 function pickFile() {
   fileInput.value?.click();
-}
-
-/** Center-crop to square and scale to at most MAX_COVER_PX. */
-async function resizeCoverImage(file: File): Promise<File> {
-  const bitmap = await createImageBitmap(file);
-  try {
-    const side = Math.min(bitmap.width, bitmap.height);
-    const sx = Math.floor((bitmap.width - side) / 2);
-    const sy = Math.floor((bitmap.height - side) / 2);
-    const out = Math.min(MAX_COVER_PX, side);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = out;
-    canvas.height = out;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Could not prepare image");
-    ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, out, out);
-
-    const mime =
-      file.type === "image/png" || file.type === "image/webp"
-        ? file.type
-        : "image/jpeg";
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error("Could not encode image"))),
-        mime,
-        mime === "image/jpeg" ? 0.92 : undefined,
-      );
-    });
-
-    const base = file.name.replace(/\.[^.]+$/, "") || "cover";
-    const ext = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
-    return new File([blob], `${base}.${ext}`, { type: mime });
-  } finally {
-    bitmap.close();
-  }
 }
 
 function fileFromClipboardEvent(ev: ClipboardEvent): File | null {
@@ -127,11 +89,10 @@ async function uploadImageFile(file: File) {
 
   uploading.value = true;
   try {
-    const resized = await resizeCoverImage(file);
-    localPreview.value = URL.createObjectURL(resized);
+    localPreview.value = URL.createObjectURL(file);
 
     const fd = new FormData();
-    fd.append("file", resized, resized.name);
+    fd.append("file", file, file.name);
     const res = await fetch(`${apiBase}/api/campfire/upload-image`, {
       method: "POST",
       headers: {
@@ -456,6 +417,7 @@ async function remove() {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
   display: block;
 }
 

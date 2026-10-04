@@ -296,7 +296,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
               <li>
                 <span class="token-howto-step">5</span>
                 <span>
-                  Paste it below. Surrounding quotes and a <code>Bearer</code> prefix are both fine.
+                  Paste it below. Surrounding quotes are fine.
                 </span>
               </li>
             </ol>
@@ -337,7 +337,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
               <li>
                 <span class="token-howto-step">5</span>
                 <span>
-                  Paste it below. Surrounding quotes and a <code>Bearer</code> prefix are both fine.
+                  Paste it below. Surrounding quotes are fine.
                 </span>
               </li>
             </ol>
@@ -377,7 +377,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
               <li>
                 <span class="token-howto-step">5</span>
                 <span>
-                  Paste it below. Surrounding quotes and a <code>Bearer</code> prefix are both fine.
+                  Paste it below. Surrounding quotes are fine.
                 </span>
               </li>
             </ol>
@@ -419,7 +419,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
               <li>
                 <span class="token-howto-step">5</span>
                 <span>
-                  Paste it below. Surrounding quotes and a <code>Bearer</code> prefix are both fine.
+                  Paste it below. Surrounding quotes are fine.
                 </span>
               </li>
             </ol>
@@ -443,7 +443,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
             rows="4"
             autocomplete="off"
             spellcheck="false"
-            placeholder="Bearer eyJ… or the token only"
+            placeholder="eyJ…"
             :class="{ 'token-masked': !tokenVisible }"
           />
         </div>

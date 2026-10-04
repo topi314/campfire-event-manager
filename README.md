@@ -99,7 +99,7 @@ Docker builds without `-tags dev` and embeds the generated SPA. With `-tags dev`
 
 ## Campfire JWT
 
-Open [campfire.scopely.com/discover](https://campfire.scopely.com/discover) and sign in, then copy `CapacitorStorage.sessionToken` from Local Storage for `https://campfire.scopely.com`. Paste it into **Settings** (surrounding quotes and a `Bearer` prefix are both fine).
+Open [campfire.scopely.com/discover](https://campfire.scopely.com/discover) and sign in, then copy `CapacitorStorage.sessionToken` from Local Storage for `https://campfire.scopely.com`. Paste it into **Settings** (surrounding quotes are fine).
 
 ### Chrome
 1. Press F12 (or right-click → Inspect) and open the **Application** tab
@@ -121,7 +121,7 @@ Open [campfire.scopely.com/discover](https://campfire.scopely.com/discover) and 
 2. Choose **Develop → Show Web Inspector** (or ⌥⌘I), then open the **Storage** tab
 3. Under **Local Storage**, select `https://campfire.scopely.com` and copy `CapacitorStorage.sessionToken` (`eyJ…`)
 
-The token is kept in the browser (`campfire-event-manager.sessionToken`) and sent as `Authorization: Bearer …` on Campfire API calls. The server never persists it.
+The token is kept in the browser (`campfire-event-manager.sessionToken`) and attached to Campfire API calls. The server never persists it.
 
 ## Meetup create fields
 

@@ -130,5 +130,8 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) clientConfig(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"cartoApiKey": s.cfg.Basemaps.CartoKey()})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"cartoApiKey":    s.cfg.Basemaps.CartoKey(),
+		"bugHexeUserIds": s.cfg.DiscordAuth.BugHexe,
+	})
 }

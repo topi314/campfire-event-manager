@@ -44,7 +44,7 @@ const { api } = useApi();
 const { token, authHeaders, openSettings, invalidateToken } = useSessionToken();
 const { me: campfireMe, validateToken } = useCampfireSession();
 const { timeZone, preferredClubId } = usePreferences();
-const { setFlash } = useFlash();
+const toast = useToast();
 
 type FlowMode = "create" | "edit";
 
@@ -540,7 +540,7 @@ watch(preferredClubId, (preferred) => {
 });
 
 watch(selectedLiveEventId, () => {
-  if (mode.value === "edit" || editingDraftId.value != null) return;
+  if (programmaticUpdate || mode.value === "edit" || editingDraftId.value != null) return;
 
   // Until the user edits, keep template in sync with the live event category.
   if (!detailsTouched.value) {
@@ -899,6 +899,7 @@ function buildDraftPayload(): DraftMeetupPayload {
 function resetFormAfterDraft() {
   detailsTouched.value = false;
   beginProgrammaticUpdate();
+  selectedLiveEventId.value = "";
   selectedTemplateId.value = "";
   if (selectedClub.value) {
     void blankDraftForSelection().then(() => {
@@ -1027,7 +1028,7 @@ async function saveDraft() {
     }
     resetFormAfterDraft();
     await loadDrafts();
-    setFlash(`Saved draft “${payload.name}”`);
+    toast.success("Draft saved", payload.name || undefined);
     await navigateTo("/create/drafts");
   } catch (e: any) {
     error.value = e.message || "Failed to save draft";
@@ -1062,7 +1063,7 @@ async function createMeetup() {
       headers: authHeaders(),
       body: JSON.stringify(body),
     });
-    success.value = `Created meetup “${event.name}” (${event.id})`;
+    toast.success("Meetup posted", event.name || undefined);
     const postedDraftId = editingDraftId.value;
     if (postedDraftId != null) {
       try {
@@ -1078,6 +1079,8 @@ async function createMeetup() {
     }
     resetFormAfterDraft();
     if (props.draftId != null) await navigateTo("/create");
+    await nextTick();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (e: any) {
     error.value = e.message || "Failed to create meetup";
     if (isCampfireTokenError(e)) invalidateToken();
@@ -1110,7 +1113,7 @@ async function saveEditedMeetup() {
         body: JSON.stringify(body),
       },
     );
-    success.value = `Updated meetup “${event.name}” (${event.id})`;
+    toast.success("Meetup updated", event.name || undefined);
     originalCoverPhotoUrl.value = draft.coverPhotoUrl || "";
     await loadClubEvents();
   } catch (e: any) {
@@ -1142,7 +1145,7 @@ async function deleteEditedMeetup() {
       method: "DELETE",
       headers: authHeaders(),
     });
-    success.value = `Deleted meetup “${name}”`;
+    toast.success("Meetup deleted", name);
     selectedEventId.value = "";
     clearEditDraft();
     await loadClubEvents();

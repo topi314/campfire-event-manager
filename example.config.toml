@@ -26,6 +26,8 @@ client_secret = "your_client_secret"
 guild_ids = ["123456789012345678"]
 whitelist = []
 admins = []
+# Discord user IDs that see the Bug Hexe easter egg
+bug_hexe = ["233686023916224522", "170939974227591168"]
 
 [campfire]
 url = "https://niantic-social-api.nianticlabs.com/graphql"

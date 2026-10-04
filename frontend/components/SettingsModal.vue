@@ -20,19 +20,26 @@ const {
   browserTimeZone,
   preferredClubId,
   setPreferredClubId,
+  bugHexeEnabled,
+  setBugHexeEnabled,
 } = usePreferences();
 const { me, isCA, checking, validateToken } = useCampfireSession();
-const { logout } = useAuth();
+const { user, logout } = useAuth();
+const { bugHexeUserIds } = useClientConfig();
+const toast = useToast();
 
 const draftToken = ref("");
 const draftTz = ref("");
 const draftClubId = ref("");
+const draftBugHexe = ref(true);
+const showBugHexeSetting = computed(
+  () => !!user.value && bugHexeUserIds.value.includes(user.value.id),
+);
 const zones = ref<string[]>([]);
 const clubs = ref<Club[]>([]);
 const clubsLoading = ref(false);
 const clubsError = ref("");
 const tokenSection = ref<HTMLElement | null>(null);
-const savedFlash = ref(false);
 const loggingOut = ref(false);
 const tokenVisible = ref(false);
 const saving = ref(false);
@@ -58,18 +65,26 @@ async function loadClubs() {
 }
 
 watch(
-  () => [props.open, props.focusToken, token.value, timeZone.value, preferredClubId.value] as const,
+  () =>
+    [
+      props.open,
+      props.focusToken,
+      token.value,
+      timeZone.value,
+      preferredClubId.value,
+      bugHexeEnabled.value,
+    ] as const,
   ([open], prev) => {
     if (open && !prev?.[0]) tokenVisible.value = false;
     if (!open) return;
     draftToken.value = token.value;
     draftTz.value = timeZone.value;
     draftClubId.value = preferredClubId.value;
+    draftBugHexe.value = bugHexeEnabled.value;
     zones.value = listTimeZones();
     if (!zones.value.includes(draftTz.value)) {
       zones.value = [...zones.value, draftTz.value].sort((a, b) => a.localeCompare(b));
     }
-    savedFlash.value = false;
     saveError.value = "";
     void loadClubs();
     if (props.focusToken) {
@@ -84,6 +99,7 @@ watch(
 async function onSave() {
   setTimeZone(draftTz.value || browserTimeZone());
   setPreferredClubId(draftClubId.value);
+  if (showBugHexeSetting.value) setBugHexeEnabled(draftBugHexe.value);
   saveError.value = "";
   const nextToken = draftToken.value.trim();
   if (nextToken) {
@@ -105,7 +121,7 @@ async function onSave() {
     }
   }
   emit("close");
-  savedFlash.value = true;
+  toast.success("Settings saved");
 }
 
 function onClearToken() {
@@ -456,6 +472,17 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         <p v-else class="muted" style="margin: 0">No token saved yet.</p>
       </div>
 
+      <div v-if="showBugHexeSetting" class="settings-section">
+        <h3>Bug Hexe</h3>
+        <p class="muted">
+          A little witch flies through when you open the app. Turn this off if you’d rather not.
+        </p>
+        <label class="bug-hexe-toggle">
+          <input v-model="draftBugHexe" type="checkbox" />
+          <span>Show Bug Hexe on visit</span>
+        </label>
+      </div>
+
       <div class="modal-actions">
         <button type="button" :disabled="(!token && !draftToken) || saving" @click="onClearToken">
           Clear token
@@ -465,8 +492,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           {{ saving ? "Saving…" : "Save" }}
         </button>
       </div>
-      <p v-if="savedFlash" class="success" style="margin: 0.5rem 0 0">Saved.</p>
-
       <div class="settings-footer-actions">
         <button
           type="button"
@@ -525,6 +550,19 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 .hint {
   margin: 0.35rem 0 0;
   font-size: 0.85rem;
+}
+.bug-hexe-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+.bug-hexe-toggle input {
+  width: auto;
+  margin: 0;
 }
 .token-howto {
   margin: 0.75rem 0 1rem;

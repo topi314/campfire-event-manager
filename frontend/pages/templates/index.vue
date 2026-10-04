@@ -12,6 +12,7 @@ import { coverImageSrc } from "~/utils/covers";
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { timeZone } = usePreferences();
+const toast = useToast();
 const route = useRoute();
 const { apiBase } = useRuntimeConfig().public;
 
@@ -164,12 +165,13 @@ async function goEdit(t: MeetupTemplate) {
 
 async function remove(id: number) {
   if (!confirm("Delete this template?")) return;
+  const name = templates.value.find((t) => t.id === id)?.name;
   error.value = "";
   try {
     await api(`/api/templates/${id}`, { method: "DELETE" });
     if (preview.value?.id === id) closePreview();
     await load();
-    success.value = "Deleted";
+    toast.success("Template deleted", name || undefined);
   } catch (e: any) {
     error.value = e.message || "Failed to delete";
   }
@@ -215,9 +217,10 @@ async function confirmPublish() {
     if (preview.value?.id === t.id) {
       preview.value = templates.value.find((x) => x.id === t.id) || preview.value;
     }
-    success.value = t.publishedAt
-      ? "Listing updated"
-      : "Published — others can find it under Browse";
+    toast.success(
+      t.publishedAt ? "Listing updated" : "Template published",
+      t.name || undefined,
+    );
     publishTarget.value = null;
     publishDescription.value = "";
   } catch (e: any) {
@@ -236,7 +239,7 @@ async function unpublish(t: MeetupTemplate) {
     if (preview.value?.id === t.id) {
       preview.value = templates.value.find((x) => x.id === t.id) || preview.value;
     }
-    success.value = "Unpublished";
+    toast.success("Template unpublished", t.name || undefined);
   } catch (e: any) {
     error.value = e.message || "Failed to unpublish";
   } finally {
@@ -254,9 +257,10 @@ async function onImport(ev: Event) {
     for (const f of Array.from(input.files)) {
       fd.append("files", f);
     }
+    const count = input.files.length;
     await api("/api/templates/import", { method: "POST", body: fd });
     await load();
-    success.value = "Imported";
+    toast.success(count === 1 ? "Template imported" : `${count} templates imported`);
     input.value = "";
   } catch (e: any) {
     error.value = e.message || "Import failed";

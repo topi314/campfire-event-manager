@@ -8,6 +8,7 @@ const props = defineProps<{
 
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
+const toast = useToast();
 
 const editing = ref<MeetupTemplate | null>(null);
 const error = ref("");
@@ -66,11 +67,13 @@ async function onSave(data: { name: string; payload: MeetupPayload }) {
         method: "PUT",
         body: JSON.stringify(data),
       });
+      toast.success("Template updated", data.name || undefined);
     } else {
       await api("/api/templates", {
         method: "POST",
         body: JSON.stringify(data),
       });
+      toast.success("Template saved", data.name || undefined);
     }
     await navigateTo("/templates");
   } catch (e: any) {

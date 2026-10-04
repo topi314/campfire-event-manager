@@ -8,6 +8,7 @@ import { coverImageSrc } from "~/utils/covers";
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { timeZone } = usePreferences();
+const toast = useToast();
 const route = useRoute();
 const { apiBase } = useRuntimeConfig().public;
 
@@ -133,7 +134,7 @@ async function addToMine(t: MeetupTemplate) {
   success.value = "";
   try {
     await api(`/api/templates/${t.id}/clone`, { method: "POST" });
-    success.value = `Added “${t.name}” to My templates — it stays synced with the original until you edit it`;
+    toast.success("Added to My templates", t.name || undefined);
     closePreview();
   } catch (e: any) {
     error.value = e.message || "Failed to add template";

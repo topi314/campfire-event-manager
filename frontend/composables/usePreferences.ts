@@ -6,6 +6,8 @@ type StoredPrefs = {
   byUser?: Record<string, string>;
   /** Discord user id → preferred Campfire club id for create/edit auto-select. */
   preferredClubByUser?: Record<string, string>;
+  /** Discord user id → whether Bug Hexe easter egg is enabled (default true). */
+  bugHexeEnabledByUser?: Record<string, boolean>;
 };
 
 function browserTimeZone(): string {
@@ -25,16 +27,27 @@ function normalizeStringMap(raw: unknown): Record<string, string> {
   return out;
 }
 
+function normalizeBoolMap(raw: unknown): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === "boolean") out[id] = value;
+  }
+  return out;
+}
+
 function normalizeStored(raw: unknown): StoredPrefs {
   if (!raw || typeof raw !== "object") return {};
   const parsed = raw as StoredPrefs;
   const byUser = normalizeStringMap(parsed.byUser);
   const preferredClubByUser = normalizeStringMap(parsed.preferredClubByUser);
+  const bugHexeEnabledByUser = normalizeBoolMap(parsed.bugHexeEnabledByUser);
   const legacy = typeof parsed.timeZone === "string" ? parsed.timeZone.trim() : "";
   return {
     timeZone: legacy || undefined,
     byUser,
     preferredClubByUser,
+    bugHexeEnabledByUser,
   };
 }
 
@@ -110,6 +123,8 @@ export function usePreferences() {
       byUser: partial.byUser ?? { ...(stored.value.byUser || {}) },
       preferredClubByUser:
         partial.preferredClubByUser ?? { ...(stored.value.preferredClubByUser || {}) },
+      bugHexeEnabledByUser:
+        partial.bugHexeEnabledByUser ?? { ...(stored.value.bugHexeEnabledByUser || {}) },
     };
   }
 
@@ -142,6 +157,23 @@ export function usePreferences() {
     if (trimmed) nextMap[id] = trimmed;
     else delete nextMap[id];
     const next = snapshot({ preferredClubByUser: nextMap });
+    stored.value = next;
+    writeStored(next);
+  }
+
+  const bugHexeEnabled = computed(() => {
+    const id = user.value?.id;
+    if (!id) return true;
+    const storedFlag = stored.value.bugHexeEnabledByUser?.[id];
+    return storedFlag !== false;
+  });
+
+  function setBugHexeEnabled(enabled: boolean) {
+    const id = user.value?.id;
+    if (!id) return;
+    const nextMap = { ...(stored.value.bugHexeEnabledByUser || {}) };
+    nextMap[id] = enabled;
+    const next = snapshot({ bugHexeEnabledByUser: nextMap });
     stored.value = next;
     writeStored(next);
   }
@@ -237,6 +269,8 @@ export function usePreferences() {
     setTimeZone,
     preferredClubId,
     setPreferredClubId,
+    bugHexeEnabled,
+    setBugHexeEnabled,
     maybePromptTimezone,
     closeTimezonePrompt,
     browserTimeZone,

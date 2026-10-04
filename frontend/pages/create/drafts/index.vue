@@ -14,7 +14,7 @@ const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { token, authHeaders, openSettings, invalidateToken } = useSessionToken();
 const { timeZone } = usePreferences();
-const { consumeFlash } = useFlash();
+const toast = useToast();
 const { apiBase } = useRuntimeConfig().public;
 
 const drafts = ref<MeetupDraftItem[]>([]);
@@ -35,8 +35,6 @@ onMounted(async () => {
     return;
   }
   await load();
-  const flash = consumeFlash();
-  if (flash?.text) success.value = flash.text;
 });
 
 async function load() {
@@ -213,6 +211,8 @@ async function onConfirmAction() {
 }
 
 async function removeOne(id: number) {
+  const item = drafts.value.find((d) => d.id === id);
+  const name = item ? resolveDraftDisplay(item, timeZone.value).name : undefined;
   busy.value = true;
   error.value = "";
   try {
@@ -222,6 +222,7 @@ async function removeOne(id: number) {
     });
     drafts.value = drafts.value.filter((d) => d.id !== id);
     toggleSelected(id, false);
+    toast.success("Draft deleted", name || undefined);
   } catch (e: any) {
     error.value = e.message || "Failed to remove draft";
     if (isCampfireTokenError(e)) invalidateToken();
@@ -266,9 +267,11 @@ async function clearMany(ids: number[]) {
       }
     }
     if (removed.length && !errors.length) {
-      success.value = `Cleared ${removed.length} draft${removed.length === 1 ? "" : "s"}`;
+      toast.success(
+        removed.length === 1 ? "Draft deleted" : `${removed.length} drafts deleted`,
+      );
     } else if (removed.length && errors.length) {
-      success.value = `Cleared ${removed.length}, ${errors.length} failed`;
+      toast.success(`Deleted ${removed.length}, ${errors.length} failed`);
       error.value = errors.join("; ");
     } else {
       error.value = errors.join("; ") || "Failed to clear drafts";
@@ -311,7 +314,7 @@ async function postOne(id: number) {
   progress.value = `Posting “${name}”…`;
   try {
     const event = await postItem(item);
-    success.value = `Posted meetup “${event.name}” (${event.id})`;
+    toast.success("Meetup posted", event.name || undefined);
   } catch (e: any) {
     error.value = e.message || "Failed to post meetup";
     if (isCampfireTokenError(e)) invalidateToken();
@@ -343,7 +346,7 @@ async function postMany(ids: number[]) {
       progress.value = `Posting ${i + 1} of ${pending.length}: ${name}`;
       try {
         const event = await postItem(item);
-        created.push(`“${event.name}”`);
+        created.push(event.name || name);
       } catch (e: any) {
         errors.push(`${name}: ${e.message || "failed"}`);
         if (isCampfireTokenError(e)) {
@@ -353,9 +356,12 @@ async function postMany(ids: number[]) {
       }
     }
     if (created.length && !errors.length) {
-      success.value = `Posted ${created.length} meetup${created.length === 1 ? "" : "s"}`;
+      toast.success(
+        created.length === 1 ? "Meetup posted" : `${created.length} meetups posted`,
+        created.length === 1 ? created[0] : undefined,
+      );
     } else if (created.length && errors.length) {
-      success.value = `Posted ${created.length}, ${errors.length} failed`;
+      toast.success(`Posted ${created.length}, ${errors.length} failed`);
       error.value = errors.join("; ");
     } else {
       error.value = errors.join("; ") || "All posts failed";

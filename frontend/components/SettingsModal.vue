@@ -475,11 +475,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
       <div v-if="showBugHexeSetting" class="settings-section">
         <h3>Bug Hexe</h3>
         <p class="muted">
-          A little witch flies through when you open the app. Turn this off if you’d rather not.
+          A little witch flies through when you open the app, and your cursor becomes a
+          Zauberstab. Turn this off if you’d rather not.
         </p>
         <label class="bug-hexe-toggle">
           <input v-model="draftBugHexe" type="checkbox" />
-          <span>Show Bug Hexe on visit</span>
+          <span>Show Bug Hexe &amp; Zauberstab cursor</span>
         </label>
       </div>
 

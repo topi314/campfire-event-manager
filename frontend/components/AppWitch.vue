@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import witchUrl from "~/assets/images/witch-broom.jpg";
+import wandCursorUrl from "~/assets/images/zauberstab-cursor.svg";
 
 /** Fly across, linger briefly, then leave. */
 const VISIBLE_MS = 5200;
 const SPARKLE_COUNT = 28;
+const WAND_CURSOR_CLASS = "bug-hexe-wand-cursor";
 
 const { user } = useAuth();
 const { bugHexeUserIds } = useClientConfig();
@@ -29,6 +31,15 @@ const sparkles = Array.from({ length: SPARKLE_COUNT }, (_, i) => ({
   duration: `${1.4 + (i % 6) * 0.25}s`,
 }));
 
+function setWandCursor(on: boolean) {
+  if (!import.meta.client) return;
+  document.documentElement.classList.toggle(WAND_CURSOR_CLASS, on);
+  document.documentElement.style.setProperty(
+    "--bug-hexe-wand-cursor",
+    on ? `url("${wandCursorUrl}") 8 8, auto` : "",
+  );
+}
+
 function dismiss() {
   if (hideTimer) {
     clearTimeout(hideTimer);
@@ -40,6 +51,7 @@ function dismiss() {
 watch(
   eligible,
   (ok) => {
+    setWandCursor(ok);
     if (!ok || played.value || show.value) return;
     played.value = true;
     show.value = true;
@@ -55,6 +67,7 @@ watch(bugHexeEnabled, (enabled) => {
 
 onBeforeUnmount(() => {
   if (hideTimer) clearTimeout(hideTimer);
+  setWandCursor(false);
 });
 </script>
 

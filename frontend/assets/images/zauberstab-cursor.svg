@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- wand shaft -->
+  <line x1="26" y1="26" x2="11" y2="11" stroke="#8b5a2b" stroke-width="2.4" stroke-linecap="round"/>
+  <line x1="25.2" y1="25.2" x2="12" y2="12" stroke="#c4894a" stroke-width="1" stroke-linecap="round"/>
+  <!-- tip star -->
+  <g filter="url(#glow)" transform="translate(8 8)">
+    <path
+      d="M0-6 L1.4-1.4 L6 0 L1.4 1.4 L0 6 L-1.4 1.4 L-6 0 L-1.4-1.4 Z"
+      fill="#f3e8ff"
+      stroke="#c4a1ff"
+      stroke-width="0.6"
+    />
+  </g>
+  <!-- sparkles -->
+  <circle cx="14" cy="5" r="1" fill="#e9d5ff" opacity="0.95"/>
+  <circle cx="4" cy="12" r="0.8" fill="#f5f3ff" opacity="0.9"/>
+  <circle cx="18" cy="14" r="0.7" fill="#ddd6fe" opacity="0.85"/>
+</svg>

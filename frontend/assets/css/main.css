@@ -463,3 +463,9 @@ label {
     grid-template-columns: 1fr;
   }
 }
+
+/* Bug Hexe: Zauberstab cursor for eligible users (toggled via Settings). */
+html.bug-hexe-wand-cursor,
+html.bug-hexe-wand-cursor * {
+  cursor: var(--bug-hexe-wand-cursor) !important;
+}

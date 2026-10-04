@@ -1,5 +1,8 @@
 /** Wall-clock datetime for `<input type="datetime-local">`: YYYY-MM-DDTHH:mm */
 
+/** Minimum meetup length (Campfire create/edit + templates). */
+export const MIN_MEETUP_DURATION_MINUTES = 15;
+
 export type TimeOfDay = { hours: number; minutes: number };
 
 export type CalendarDate = { year: number; month: number; day: number }; // month 1–12
@@ -312,6 +315,85 @@ export function addMinutesToLocal(local: string, minutes: number): string {
     hours: next.getUTCHours(),
     minutes: next.getUTCMinutes(),
   });
+}
+
+/** Compare two datetime-local strings as naive wall clocks (ms). */
+export function localDateTimeDiffMs(start: string, end: string): number | null {
+  const a = parseLocalDateTime(start);
+  const b = parseLocalDateTime(end);
+  if (!a || !b) return null;
+  const startMs = Date.UTC(a.year, a.month - 1, a.day, a.hours, a.minutes, a.seconds || 0);
+  const endMs = Date.UTC(b.year, b.month - 1, b.day, b.hours, b.minutes, b.seconds || 0);
+  return endMs - startMs;
+}
+
+/** True when end is at least MIN_MEETUP_DURATION_MINUTES after start. */
+export function isMeetupDurationValid(start: string, end: string): boolean {
+  const diff = localDateTimeDiffMs(start, end);
+  if (diff == null) return false;
+  return diff >= MIN_MEETUP_DURATION_MINUTES * 60_000;
+}
+
+/**
+ * Return an end datetime-local that is at least `minutes` after start.
+ * If `end` already satisfies that, it is returned unchanged.
+ */
+export function ensureMinMeetupEnd(
+  start: string,
+  end?: string | null,
+  minutes = MIN_MEETUP_DURATION_MINUTES,
+): string {
+  const minEnd = addMinutesToLocal(start, minutes);
+  if (!end?.trim()) return minEnd;
+  const diff = localDateTimeDiffMs(start, end);
+  if (diff == null || diff < minutes * 60_000) return minEnd;
+  return end;
+}
+
+function minutesOfDay(t: TimeOfDay): number {
+  return t.hours * 60 + t.minutes;
+}
+
+/** Add minutes to an HH:mm clock (wraps at midnight). */
+export function addMinutesToTimeOfDay(time: string, minutes: number): string {
+  const t = parseTimeOfDay(time) ?? parseWallClockTimeOfDay(time);
+  if (!t) return time;
+  const total = ((minutesOfDay(t) + minutes) % (24 * 60) + 24 * 60) % (24 * 60);
+  return formatTimeOfDay({ hours: Math.floor(total / 60), minutes: total % 60 });
+}
+
+/**
+ * Ensure template end clock is at least `minutes` after start on the same day.
+ * Overnight (end before start) is treated as too short and bumped to start+minutes
+ * (clamped to 23:59 if that would cross midnight).
+ */
+export function ensureMinMeetupEndTime(
+  start: string,
+  end?: string | null,
+  minutes = MIN_MEETUP_DURATION_MINUTES,
+): string {
+  const s = parseTimeOfDay(start) ?? parseWallClockTimeOfDay(start);
+  if (!s) return (end || "").trim() || addMinutesToTimeOfDay("00:00", minutes);
+  const total = minutesOfDay(s) + minutes;
+  const minEnd =
+    total >= 24 * 60
+      ? "23:59"
+      : formatTimeOfDay({ hours: Math.floor(total / 60), minutes: total % 60 });
+  const e = end ? parseTimeOfDay(end) ?? parseWallClockTimeOfDay(end) : null;
+  if (!e) return minEnd;
+  if (minutesOfDay(e) < minutesOfDay(s) + minutes) return minEnd;
+  return formatTimeOfDay(e);
+}
+
+export function isMeetupTimeOfDayDurationValid(
+  start: string,
+  end: string,
+  minutes = MIN_MEETUP_DURATION_MINUTES,
+): boolean {
+  const s = parseTimeOfDay(start) ?? parseWallClockTimeOfDay(start);
+  const e = parseTimeOfDay(end) ?? parseWallClockTimeOfDay(end);
+  if (!s || !e) return false;
+  return minutesOfDay(e) - minutesOfDay(s) >= minutes;
 }
 
 /** Display a datetime-local value (wall clock, no zone conversion). */

@@ -11,8 +11,11 @@ import type {
 } from "~/types";
 import type { LatLngPoint } from "~/components/LocationPicker.vue";
 import {
+  ensureMinMeetupEnd,
   formatLocalDateTime,
   formatLocalDateTimeParts,
+  isMeetupDurationValid,
+  MIN_MEETUP_DURATION_MINUTES,
   parseLocalDateTime,
   partsInTimeZone,
 } from "~/utils/datetime";
@@ -642,6 +645,7 @@ const canCreate = computed(
     !!selectedClubId.value &&
     !!draftLocation.value &&
     !!draft.eventTime &&
+    !!draft.eventEndTime &&
     !!draft.name.trim(),
 );
 
@@ -657,7 +661,13 @@ const canSaveEdit = computed(
     !!selectedEventId.value &&
     !!draftLocation.value &&
     !!draft.eventTime &&
+    !!draft.eventEndTime &&
     !!draft.name.trim(),
+);
+
+/** Earliest allowed end for `<input type="datetime-local" :min>`. */
+const minEndTime = computed(() =>
+  draft.eventTime ? ensureMinMeetupEnd(draft.eventTime, null) : "",
 );
 
 function validateDraft(): string | null {
@@ -669,8 +679,30 @@ function validateDraft(): string | null {
   if (!draftLocation.value) return "Set a location";
   if (!draft.name.trim()) return "Title is required";
   if (!draft.eventTime) return "Start time is required";
+  if (!draft.eventEndTime) return "End time is required";
+  draft.eventEndTime = ensureMinMeetupEnd(draft.eventTime, draft.eventEndTime);
+  if (!isMeetupDurationValid(draft.eventTime, draft.eventEndTime)) {
+    return `End must be at least ${MIN_MEETUP_DURATION_MINUTES} minutes after start`;
+  }
   return null;
 }
+
+watch(
+  () => draft.eventTime,
+  (start) => {
+    if (!start || programmaticUpdate) return;
+    draft.eventEndTime = ensureMinMeetupEnd(start, draft.eventEndTime);
+  },
+);
+
+watch(
+  () => draft.eventEndTime,
+  (end) => {
+    if (!draft.eventTime || programmaticUpdate) return;
+    const next = ensureMinMeetupEnd(draft.eventTime, end);
+    if (next !== (end || "")) draft.eventEndTime = next;
+  },
+);
 
 function isoToLocalInput(iso: string | undefined | null): string {
   if (!iso?.trim()) return "";
@@ -1177,10 +1209,10 @@ function templateOptionLabel(t: MeetupTemplate) {
           <label for="club">Club</label>
           <select id="club" v-model="selectedClubId">
             <option value="" disabled>
-              {{ clubs.length ? "Select a club…" : "No clubs where you can create meetups" }}
+              {{ clubs.length ? "Select a club…" : "No clubs where you are an admin" }}
             </option>
             <option v-for="c in clubs" :key="c.id" :value="c.id">
-              {{ c.name }}{{ c.amIAdmin ? " (admin)" : "" }}
+              {{ c.name }}
             </option>
           </select>
         </div>
@@ -1332,12 +1364,19 @@ function templateOptionLabel(t: MeetupTemplate) {
             </div>
             <div class="field">
               <label for="end">End</label>
-              <input id="end" v-model="draft.eventEndTime" type="datetime-local" />
+              <input
+                id="end"
+                v-model="draft.eventEndTime"
+                type="datetime-local"
+                required
+                :min="minEndTime"
+              />
             </div>
           </div>
           <p class="hint muted" style="margin-top: -0.35rem">
             Times are wall-clock values in your Settings timezone ({{ timeZone }}) and sent to
-            Campfire as UTC.
+            Campfire as UTC. Meetups must be at least {{ MIN_MEETUP_DURATION_MINUTES }} minutes
+            long.
             <template v-if="selectedLiveEvent">
               Template clocks use the live event’s local calendar day.
             </template>
@@ -1429,13 +1468,6 @@ function templateOptionLabel(t: MeetupTemplate) {
 
       <div v-if="draftReady" style="margin-top: 1.25rem; display: flex; flex-wrap: wrap; gap: 0.5rem">
         <template v-if="mode === 'create'">
-          <p
-            v-if="selectedClub && !selectedClub.amIAdmin"
-            class="hint muted"
-            style="flex-basis: 100%; margin: 0"
-          >
-            Drafts are shared with club admins — only admins can save them.
-          </p>
           <button
             v-if="editingDraftId != null"
             type="button"

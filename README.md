@@ -111,7 +111,7 @@ The token is kept in the browser (`campfire-event-manager.sessionToken`) and sen
 
 Create flow (home page):
 
-1. **Club** — clubs you can create meetups in
+1. **Club** — PGO clubs where you are an admin
 2. **Live event** (optional) — when set, supplies the meetup day, `campfireLiveEventId`, and category (from the event name)
 3. **Template** — filtered/auto-selected by live-event category when one is chosen
 4. **Placeholders** — fill any `{{key}}` tokens

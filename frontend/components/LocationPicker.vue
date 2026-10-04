@@ -4,7 +4,12 @@ import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import { DEFAULT_BASE_MAP_ID, getBaseMap, withCartoApiKey } from "~/constants/baseMaps";
-import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from "~/constants/map";
+import {
+  DEFAULT_MAP_CENTER,
+  DEFAULT_MAP_ZOOM,
+  readLastMapView,
+  writeLastMapView,
+} from "~/constants/map";
 import { parseLatLng } from "~/utils/location";
 
 export type LatLngPoint = { lat: number; lng: number };
@@ -19,6 +24,7 @@ type GeocodeHit = {
 const props = withDefaults(
   defineProps<{
     modelValue: LatLngPoint | null;
+    /** Optional hint when there is no pin; omitted → last view or default. */
     initialCenter?: LatLngPoint;
     baseMapId?: string;
     /** Display-only: no click/drag/locate/clear. */
@@ -27,7 +33,6 @@ const props = withDefaults(
     jitterMeters?: number;
   }>(),
   {
-    initialCenter: () => ({ ...DEFAULT_MAP_CENTER }),
     baseMapId: DEFAULT_BASE_MAP_ID,
     readonly: false,
     jitterMeters: 0,
@@ -60,11 +65,46 @@ let locateControl: L.Control | null = null;
 let clearControl: L.Control | null = null;
 let clearBtnEl: HTMLAnchorElement | null = null;
 let syncingCoords = false;
+let persistViewTimer: ReturnType<typeof setTimeout> | null = null;
+/** Skip persisting while we programmatically setView. */
+let suppressViewPersist = false;
+
+function rememberMapView() {
+  if (!map || props.readonly || suppressViewPersist) return;
+  const c = map.getCenter();
+  writeLastMapView({ lat: c.lat, lng: c.lng, zoom: map.getZoom() });
+}
+
+function scheduleRememberMapView() {
+  if (!map || props.readonly) return;
+  if (persistViewTimer) clearTimeout(persistViewTimer);
+  persistViewTimer = setTimeout(() => {
+    persistViewTimer = null;
+    rememberMapView();
+  }, 250);
+}
+
+function setMapView(lat: number, lng: number, zoom?: number) {
+  if (!map) return;
+  suppressViewPersist = true;
+  map.setView([lat, lng], zoom ?? map.getZoom());
+  suppressViewPersist = false;
+}
 
 onMounted(() => {
   if (!mapEl.value) return;
 
-  const center = props.modelValue || props.initialCenter;
+  const saved = !props.readonly ? readLastMapView() : null;
+  // Pin → parent center → last view → default.
+  const startCenter =
+    props.modelValue ||
+    props.initialCenter ||
+    (saved ? { lat: saved.lat, lng: saved.lng } : null) ||
+    DEFAULT_MAP_CENTER;
+  const startZoom = props.modelValue
+    ? Math.max(saved?.zoom ?? DEFAULT_MAP_ZOOM, DEFAULT_MAP_ZOOM)
+    : (saved?.zoom ?? DEFAULT_MAP_ZOOM);
+
   map = L.map(mapEl.value, {
     zoomControl: true,
     dragging: !props.readonly,
@@ -72,7 +112,7 @@ onMounted(() => {
     doubleClickZoom: !props.readonly,
     boxZoom: !props.readonly,
     keyboard: !props.readonly,
-  }).setView([center.lat, center.lng], DEFAULT_MAP_ZOOM);
+  }).setView([startCenter.lat, startCenter.lng], startZoom);
   applyBaseLayer(apiKey.value);
   if (!props.readonly) {
     locateControl = createLocateControl().addTo(map);
@@ -82,6 +122,8 @@ onMounted(() => {
       // Don't pan — keeps the click from fighting map interaction / blur races.
       applyPoint({ lat: e.latlng.lat, lng: e.latlng.lng }, { pan: false });
     });
+    map.on("moveend", scheduleRememberMapView);
+    map.on("zoomend", scheduleRememberMapView);
     document.addEventListener("click", onDocClick);
   }
 
@@ -101,6 +143,12 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener("click", onDocClick);
   if (searchTimer) clearTimeout(searchTimer);
+  if (persistViewTimer) clearTimeout(persistViewTimer);
+  if (map && !props.readonly) {
+    rememberMapView();
+    map.off("moveend", scheduleRememberMapView);
+    map.off("zoomend", scheduleRememberMapView);
+  }
   locateControl?.remove();
   clearControl?.remove();
   locateControl = null;
@@ -128,7 +176,7 @@ watch(
   () => props.initialCenter,
   (c) => {
     if (!map || !c || props.modelValue) return;
-    map.setView([c.lat, c.lng], Math.max(map.getZoom(), DEFAULT_MAP_ZOOM));
+    setMapView(c.lat, c.lng, Math.max(map.getZoom(), DEFAULT_MAP_ZOOM));
   },
   { deep: true },
 );
@@ -151,7 +199,7 @@ watch(
     }
     setMarker(v.lat, v.lng);
     if (!syncingCoords) {
-      map.setView([v.lat, v.lng], Math.max(map.getZoom(), DEFAULT_MAP_ZOOM));
+      setMapView(v.lat, v.lng, Math.max(map.getZoom(), DEFAULT_MAP_ZOOM));
       setCoordFields(v);
       coordsError.value = "";
     }
@@ -184,7 +232,7 @@ function applyPoint(point: LatLngPoint, opts: { pan?: boolean; label?: string } 
   const pan = opts.pan !== false;
   setMarker(point.lat, point.lng);
   if (pan && map) {
-    map.setView([point.lat, point.lng], Math.max(map.getZoom(), DEFAULT_MAP_ZOOM));
+    setMapView(point.lat, point.lng, Math.max(map.getZoom(), DEFAULT_MAP_ZOOM));
   }
   syncingCoords = true;
   setCoordFields(point);

@@ -123,6 +123,10 @@ func Resolve(in Input) (Schedule, error) {
 	if !end.After(start) {
 		end = end.Add(24 * time.Hour)
 	}
+	// Meetups must be at least 15 minutes long.
+	if end.Sub(start) < 15*time.Minute {
+		end = start.Add(15 * time.Minute)
+	}
 
 	return Schedule{
 		Category:     category,

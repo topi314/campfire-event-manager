@@ -185,14 +185,14 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
               Saved club (not in current list)
             </option>
             <option v-for="c in clubs" :key="c.id" :value="c.id">
-              {{ c.name }}{{ c.amIAdmin ? " (admin)" : "" }}
+              {{ c.name }}
             </option>
           </select>
         </div>
         <p v-if="!token" class="hint muted">Add a Campfire session token below to load clubs.</p>
         <p v-else-if="clubsLoading" class="hint muted">Loading clubs…</p>
         <p v-else-if="clubsError" class="hint error">{{ clubsError }}</p>
-        <p v-else-if="!clubs.length" class="hint muted">No clubs where you can create meetups.</p>
+        <p v-else-if="!clubs.length" class="hint muted">No clubs where you are an admin.</p>
       </div>
 
       <div

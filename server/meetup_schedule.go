@@ -1,11 +1,16 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/topi314/campfire-event-manager/internal/meetuptime"
 )
+
+// minMeetupDuration is the shortest allowed meetup length.
+const minMeetupDuration = 15 * time.Minute
 
 type meetupScheduleRequest struct {
 	TimeZone  string `json:"timeZone"`
@@ -56,20 +61,25 @@ func (s *Server) campfireMeetupSchedule(w http.ResponseWriter, r *http.Request) 
 }
 
 // resolveMeetupCampfireTimes converts create/edit wall clocks to RFC3339 UTC.
+// End time is required and must be at least minMeetupDuration after start.
 func (s *Server) resolveMeetupCampfireTimes(r *http.Request, eventTime, eventEndTime, timeZone string) (string, string, error) {
 	tz := s.resolveTimeZone(r, timeZone)
 	start, err := meetuptime.WallToUTC(eventTime, tz)
 	if err != nil {
 		return "", "", err
 	}
-	outStart := meetuptime.FormatRFC3339(start)
-	outEnd := ""
-	if strings.TrimSpace(eventEndTime) != "" {
-		end, err := meetuptime.WallToUTC(eventEndTime, tz)
-		if err != nil {
-			return "", "", err
-		}
-		outEnd = meetuptime.FormatRFC3339(end)
+	if strings.TrimSpace(eventEndTime) == "" {
+		return "", "", fmt.Errorf("end time is required")
 	}
-	return outStart, outEnd, nil
+	end, err := meetuptime.WallToUTC(eventEndTime, tz)
+	if err != nil {
+		return "", "", err
+	}
+	if !end.After(start) {
+		return "", "", fmt.Errorf("end time must be after start time")
+	}
+	if end.Sub(start) < minMeetupDuration {
+		return "", "", fmt.Errorf("meetup must be at least %d minutes long", int(minMeetupDuration/time.Minute))
+	}
+	return meetuptime.FormatRFC3339(start), meetuptime.FormatRFC3339(end), nil
 }

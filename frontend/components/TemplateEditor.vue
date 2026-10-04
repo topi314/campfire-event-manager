@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import type { MeetupPayload, TemplatePlaceholder } from "~/types";
 import type { LatLngPoint } from "~/components/LocationPicker.vue";
-import { DEFAULT_MAP_CENTER } from "~/constants/map";
 import {
   extractPlaceholdersFromValue,
   humanizePlaceholderKey,
   isBuiltinPlaceholder,
   normalizePlaceholderKey,
 } from "~/utils/placeholders";
-import { formatTimeOfDay, parseTimeOfDay } from "~/utils/datetime";
+import {
+  ensureMinMeetupEndTime,
+  formatTimeOfDay,
+  isMeetupTimeOfDayDurationValid,
+  MIN_MEETUP_DURATION_MINUTES,
+  parseTimeOfDay,
+} from "~/utils/datetime";
 import { DEFAULT_LOCATION_JITTER_METERS } from "~/utils/location";
 import {
   CATEGORY_SELECT_CUSTOM,
@@ -52,8 +57,8 @@ const form = reactive({
 });
 const categoryCustomMode = ref(false);
 const location = ref<LatLngPoint | null>(null);
-const mapCenter = ref<LatLngPoint>({ ...DEFAULT_MAP_CENTER });
 const placeholderMeta = ref<TemplatePlaceholder[]>([]);
+const timeError = ref("");
 
 const categorySelectValue = computed(() => {
   if (categoryCustomMode.value) return CATEGORY_SELECT_CUSTOM;
@@ -125,7 +130,7 @@ function loadFromProps() {
     form.createdByCommunityAmbassador = true;
     form.locationJitterMeters = DEFAULT_LOCATION_JITTER_METERS;
     location.value = null;
-    mapCenter.value = { ...DEFAULT_MAP_CENTER };
+    timeError.value = "";
     placeholderMeta.value = [];
     return;
   }
@@ -138,18 +143,20 @@ function loadFromProps() {
   form.coverPhotoUrl = p.coverPhotoUrl || "";
   form.commentsPermissions = p.commentsPermissions || "ORGANIZERS_ONLY";
   form.startTime = formatTimeOfDay(parseTimeOfDay(p.startTime) ?? { hours: 14, minutes: 0 });
-  form.endTime = formatTimeOfDay(parseTimeOfDay(p.endTime) ?? { hours: 17, minutes: 0 });
+  form.endTime = ensureMinMeetupEndTime(
+    form.startTime,
+    formatTimeOfDay(parseTimeOfDay(p.endTime) ?? { hours: 17, minutes: 0 }),
+  );
   form.allInvited = p.allInvited ?? true;
   form.createdByCommunityAmbassador = p.createdByCommunityAmbassador ?? true;
   form.locationJitterMeters =
     p.locationJitterMeters != null ? p.locationJitterMeters : DEFAULT_LOCATION_JITTER_METERS;
   if (p.latitude != null && p.longitude != null) {
     location.value = { lat: p.latitude, lng: p.longitude };
-    mapCenter.value = { lat: p.latitude, lng: p.longitude };
   } else {
     location.value = null;
-    mapCenter.value = { ...DEFAULT_MAP_CENTER };
   }
+  timeError.value = "";
   placeholderMeta.value = (p.placeholders || []).map((ph) => ({
     key: ph.key,
     label: ph.label || "",
@@ -160,6 +167,25 @@ function loadFromProps() {
 function onPlaceSelected(place: { lat: number; lng: number; label?: string }) {
   if (place.label) form.address = place.label;
 }
+
+watch(
+  () => form.startTime,
+  (start) => {
+    if (!start) return;
+    form.endTime = ensureMinMeetupEndTime(start, form.endTime);
+    timeError.value = "";
+  },
+);
+
+watch(
+  () => form.endTime,
+  (end) => {
+    if (!form.startTime) return;
+    const next = ensureMinMeetupEndTime(form.startTime, end);
+    if (next !== (end || "")) form.endTime = next;
+    timeError.value = "";
+  },
+);
 
 function buildPayload(): MeetupPayload {
   const placeholders = placeholderMeta.value
@@ -189,6 +215,12 @@ function buildPayload(): MeetupPayload {
 }
 
 function onSubmit() {
+  form.endTime = ensureMinMeetupEndTime(form.startTime, form.endTime);
+  if (!isMeetupTimeOfDayDurationValid(form.startTime, form.endTime)) {
+    timeError.value = `End time must be at least ${MIN_MEETUP_DURATION_MINUTES} minutes after start`;
+    return;
+  }
+  timeError.value = "";
   const tplName = name.value.trim() || form.title.trim() || "Untitled template";
   emit("save", { name: tplName, payload: buildPayload() });
 }
@@ -281,12 +313,22 @@ function onSubmit() {
           </div>
           <div class="field">
             <label for="tpl-end">End time</label>
-            <input id="tpl-end" v-model="form.endTime" type="time" required />
+            <input
+              id="tpl-end"
+              v-model="form.endTime"
+              type="time"
+              required
+              :min="form.startTime"
+            />
           </div>
         </div>
+        <p v-if="timeError" class="hint" style="margin-top: -0.35rem; color: var(--danger, #b00020)">
+          {{ timeError }}
+        </p>
         <p class="hint muted" style="margin-top: -0.35rem">
-          Clock times in your Settings timezone. When you create a meetup, the calendar day
-          comes from the live event (preferring Campfire’s local start date).
+          Clock times in your Settings timezone (end at least
+          {{ MIN_MEETUP_DURATION_MINUTES }} minutes after start). When you create a meetup, the
+          calendar day comes from the live event (preferring Campfire’s local start date).
         </p>
 
         <div class="field">
@@ -322,7 +364,6 @@ function onSubmit() {
           <ClientOnly>
             <LocationPicker
               v-model="location"
-              :initial-center="mapCenter"
               :jitter-meters="form.locationJitterMeters"
               @place="onPlaceSelected"
             >

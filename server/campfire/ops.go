@@ -68,7 +68,8 @@ type clubsResp struct {
 	} `json:"me"`
 }
 
-// Clubs returns PGO clubs the current user belongs to where they may create meetups.
+// Clubs returns PGO clubs where the current user is an admin.
+// Non-admin membership is ignored for now (meetup create + preferred club).
 func (c *Client) Clubs(ctx context.Context, token string) ([]Club, error) {
 	const pageSize = 100
 	out := make([]Club, 0)
@@ -83,7 +84,7 @@ func (c *Client) Clubs(ctx context.Context, token string) ([]Club, error) {
 			if club.Game != GamePGO {
 				continue
 			}
-			if club.CanCreateMeetups() {
+			if club.AmIAdmin {
 				out = append(out, club)
 			}
 		}

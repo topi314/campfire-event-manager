@@ -37,6 +37,7 @@ const loggingOut = ref(false);
 const tokenVisible = ref(false);
 const saving = ref(false);
 const saveError = ref("");
+const tokenHowtoBrowser = ref<"chrome" | "edge" | "firefox" | "safari">("chrome");
 
 async function loadClubs() {
   if (!token.value) {
@@ -220,46 +221,209 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
               <span class="token-howto-sub">Copy it from Campfire Local Storage</span>
             </span>
           </summary>
-          <ol class="token-howto-steps">
-            <li>
-              <span class="token-howto-step">1</span>
-              <span>
-                Open
-                <a href="https://campfire.nianticlabs.com/" target="_blank" rel="noreferrer"
-                  >campfire.nianticlabs.com</a
-                >
-                and sign in.
-              </span>
-            </li>
-            <li>
-              <span class="token-howto-step">2</span>
-              <span>
-                Press <kbd>F12</kbd> (or right-click → Inspect). Open
-                <strong>Application</strong> in Chrome or Edge, or <strong>Storage</strong> in
-                Firefox.
-              </span>
-            </li>
-            <li>
-              <span class="token-howto-step">3</span>
-              <span>
-                Under <strong>Local Storage</strong>, select
-                <code>https://campfire.nianticlabs.com</code>.
-              </span>
-            </li>
-            <li>
-              <span class="token-howto-step">4</span>
-              <span>
-                Find <code>CapacitorStorage.sessionToken</code> and copy its value
-                (<code>eyJ…</code>).
-              </span>
-            </li>
-            <li>
-              <span class="token-howto-step">5</span>
-              <span>
-                Paste it below. Surrounding quotes and a <code>Bearer</code> prefix are both fine.
-              </span>
-            </li>
-          </ol>
+          <div class="token-howto-body">
+            <div class="token-howto-browsers" role="tablist" aria-label="Browser">
+              <button
+                type="button"
+                role="tab"
+                :class="{ active: tokenHowtoBrowser === 'chrome' }"
+                :aria-selected="tokenHowtoBrowser === 'chrome'"
+                @click="tokenHowtoBrowser = 'chrome'"
+              >
+                Chrome
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :class="{ active: tokenHowtoBrowser === 'edge' }"
+                :aria-selected="tokenHowtoBrowser === 'edge'"
+                @click="tokenHowtoBrowser = 'edge'"
+              >
+                Edge
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :class="{ active: tokenHowtoBrowser === 'firefox' }"
+                :aria-selected="tokenHowtoBrowser === 'firefox'"
+                @click="tokenHowtoBrowser = 'firefox'"
+              >
+                Firefox
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :class="{ active: tokenHowtoBrowser === 'safari' }"
+                :aria-selected="tokenHowtoBrowser === 'safari'"
+                @click="tokenHowtoBrowser = 'safari'"
+              >
+                Safari
+              </button>
+            </div>
+
+            <ol v-if="tokenHowtoBrowser === 'chrome'" class="token-howto-steps">
+              <li>
+                <span class="token-howto-step">1</span>
+                <span>
+                  Open
+                  <a href="https://campfire.scopely.com/discover" target="_blank" rel="noreferrer"
+                    >campfire.scopely.com/discover</a
+                  >
+                  and sign in.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">2</span>
+                <span>
+                  Press <kbd>F12</kbd> (or right-click → Inspect) and open the
+                  <strong>Application</strong> tab.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">3</span>
+                <span>
+                  In the left sidebar, expand <strong>Local Storage</strong> and select
+                  <code>https://campfire.scopely.com</code>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">4</span>
+                <span>
+                  Find <code>CapacitorStorage.sessionToken</code> and copy its value
+                  (<code>eyJ…</code>).
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">5</span>
+                <span>
+                  Paste it below. Surrounding quotes and a <code>Bearer</code> prefix are both fine.
+                </span>
+              </li>
+            </ol>
+
+            <ol v-else-if="tokenHowtoBrowser === 'edge'" class="token-howto-steps">
+              <li>
+                <span class="token-howto-step">1</span>
+                <span>
+                  Open
+                  <a href="https://campfire.scopely.com/discover" target="_blank" rel="noreferrer"
+                    >campfire.scopely.com/discover</a
+                  >
+                  and sign in.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">2</span>
+                <span>
+                  Press <kbd>F12</kbd> (or right-click → Inspect) and open the
+                  <strong>Application</strong> tab. If you don’t see it, open the
+                  <strong>≫</strong> menu in the DevTools toolbar.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">3</span>
+                <span>
+                  In the left sidebar, expand <strong>Local Storage</strong> and select
+                  <code>https://campfire.scopely.com</code>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">4</span>
+                <span>
+                  Find <code>CapacitorStorage.sessionToken</code> and copy its value
+                  (<code>eyJ…</code>).
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">5</span>
+                <span>
+                  Paste it below. Surrounding quotes and a <code>Bearer</code> prefix are both fine.
+                </span>
+              </li>
+            </ol>
+
+            <ol v-else-if="tokenHowtoBrowser === 'firefox'" class="token-howto-steps">
+              <li>
+                <span class="token-howto-step">1</span>
+                <span>
+                  Open
+                  <a href="https://campfire.scopely.com/discover" target="_blank" rel="noreferrer"
+                    >campfire.scopely.com/discover</a
+                  >
+                  and sign in.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">2</span>
+                <span>
+                  Press <kbd>F12</kbd> (or right-click → Inspect) and open the
+                  <strong>Storage</strong> tab.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">3</span>
+                <span>
+                  In the left sidebar, expand <strong>Local Storage</strong> and select
+                  <code>https://campfire.scopely.com</code>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">4</span>
+                <span>
+                  Find <code>CapacitorStorage.sessionToken</code> and copy its value
+                  (<code>eyJ…</code>).
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">5</span>
+                <span>
+                  Paste it below. Surrounding quotes and a <code>Bearer</code> prefix are both fine.
+                </span>
+              </li>
+            </ol>
+
+            <ol v-else class="token-howto-steps">
+              <li>
+                <span class="token-howto-step">1</span>
+                <span>
+                  Open
+                  <a href="https://campfire.scopely.com/discover" target="_blank" rel="noreferrer"
+                    >campfire.scopely.com/discover</a
+                  >
+                  and sign in.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">2</span>
+                <span>
+                  Enable the Develop menu if needed:
+                  <strong>Safari → Settings → Advanced → Show features for web developers</strong>.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">3</span>
+                <span>
+                  Choose <strong>Develop → Show Web Inspector</strong> (or
+                  <kbd>⌥⌘I</kbd>), then open the <strong>Storage</strong> tab.
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">4</span>
+                <span>
+                  Under <strong>Local Storage</strong>, select
+                  <code>https://campfire.scopely.com</code>, then find
+                  <code>CapacitorStorage.sessionToken</code> and copy its value
+                  (<code>eyJ…</code>).
+                </span>
+              </li>
+              <li>
+                <span class="token-howto-step">5</span>
+                <span>
+                  Paste it below. Surrounding quotes and a <code>Bearer</code> prefix are both fine.
+                </span>
+              </li>
+            </ol>
+          </div>
         </details>
         <div class="field" style="margin-bottom: 0">
           <div class="token-label-row">
@@ -422,9 +586,44 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   font-size: 0.8rem;
   line-height: 1.3;
 }
+.token-howto-body {
+  padding: 0.75rem 0.9rem 0.25rem;
+}
+.token-howto-browsers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  margin: 0 0 0.15rem;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+}
+.token-howto-browsers button {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 4.5rem;
+  padding: 0.35rem 0.65rem;
+  border: none;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.token-howto-browsers button.active {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.token-howto-browsers button:hover:not(.active) {
+  color: var(--text);
+}
 .token-howto-steps {
   margin: 0;
-  padding: 0.85rem 0.9rem 1rem;
+  padding: 0.7rem 0 1rem;
   list-style: none;
   display: flex;
   flex-direction: column;

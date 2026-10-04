@@ -99,11 +99,27 @@ Docker builds without `-tags dev` and embeds the generated SPA. With `-tags dev`
 
 ## Campfire JWT
 
-1. Open [campfire.nianticlabs.com](https://campfire.nianticlabs.com/) and sign in
-2. Press F12 (or right-click → Inspect). Open **Application** in Chrome or Edge, or **Storage** in Firefox
-3. Under **Local Storage**, select `https://campfire.nianticlabs.com`
-4. Copy the value of `CapacitorStorage.sessionToken` (`eyJ…`)
-5. Paste it into **Settings** in this app (surrounding quotes and a `Bearer` prefix are both fine)
+Open [campfire.scopely.com/discover](https://campfire.scopely.com/discover) and sign in, then copy `CapacitorStorage.sessionToken` from Local Storage for `https://campfire.scopely.com`. Paste it into **Settings** (surrounding quotes and a `Bearer` prefix are both fine).
+
+### Chrome
+1. Press F12 (or right-click → Inspect) and open the **Application** tab
+2. Expand **Local Storage** → select `https://campfire.scopely.com`
+3. Copy the value of `CapacitorStorage.sessionToken` (`eyJ…`)
+
+### Edge
+1. Press F12 (or right-click → Inspect) and open the **Application** tab (use the **≫** menu if needed)
+2. Expand **Local Storage** → select `https://campfire.scopely.com`
+3. Copy the value of `CapacitorStorage.sessionToken` (`eyJ…`)
+
+### Firefox
+1. Press F12 (or right-click → Inspect) and open the **Storage** tab
+2. Expand **Local Storage** → select `https://campfire.scopely.com`
+3. Copy the value of `CapacitorStorage.sessionToken` (`eyJ…`)
+
+### Safari
+1. Enable the Develop menu if needed: **Safari → Settings → Advanced → Show features for web developers**
+2. Choose **Develop → Show Web Inspector** (or ⌥⌘I), then open the **Storage** tab
+3. Under **Local Storage**, select `https://campfire.scopely.com` and copy `CapacitorStorage.sessionToken` (`eyJ…`)
 
 The token is kept in the browser (`campfire-event-manager.sessionToken`) and sent as `Authorization: Bearer …` on Campfire API calls. The server never persists it.
 

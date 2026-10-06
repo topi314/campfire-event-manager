@@ -21,8 +21,10 @@ import {
 } from "~/utils/datetime";
 import {
   applyPlaceholders,
+  extractPlaceholderKeys,
   humanizePlaceholderKey,
   isBuiltinPlaceholder,
+  isEventPokemonNameKey,
   normalizePlaceholderKey,
   resolveBuiltinPlaceholderValues,
   resolveCustomPlaceholderDefs,
@@ -294,7 +296,32 @@ const placeholderDefs = computed<PlaceholderDef[]>(() => {
   return [...byNorm.values()];
 });
 
-const selectionReady = computed(() => placeholderDefs.value.length > 0);
+/** Used eventPokemon / eventPokemon[i] name tokens (editable) from template and draft. */
+const eventPokemonNameDefs = computed(() => {
+  const chunks: string[] = [];
+  if (rawPayload.value) {
+    chunks.push(
+      rawPayload.value.name,
+      rawPayload.value.details,
+      rawPayload.value.address,
+      rawPayload.value.coverPhotoUrl,
+    );
+  }
+  chunks.push(draft.name, draft.details, draft.address, draft.coverPhotoUrl);
+  return extractPlaceholderKeys(chunks.filter(Boolean).join("\n")).filter(
+    isEventPokemonNameKey,
+  );
+});
+
+const selectionReady = computed(
+  () => placeholderDefs.value.length > 0 || eventPokemonNameDefs.value.length > 0,
+);
+
+const MAX_MEETUP_TITLE = 120;
+const MAX_MEETUP_DETAILS = 1000;
+const eventPokemonResolved = ref<Record<string, string>>({});
+const eventPokemonDirty = ref<Set<string>>(new Set());
+let resolveSeq = 0;
 
 /** Edit keeps {{tokens}} visible; preview shows resolved copy. */
 const textViewMode = ref<"edit" | "preview">("edit");
@@ -330,6 +357,7 @@ function builtinPlaceholderContext() {
     address: draft.address || "",
     latitude: draftLocation.value?.lat ?? null,
     longitude: draftLocation.value?.lng ?? null,
+    eventPokemonValues: eventPokemonResolved.value,
   };
 }
 
@@ -339,6 +367,10 @@ function currentPlaceholderMap(): Record<string, string> {
     const raw = (placeholderValues[d.key] ?? "").trim();
     if (raw) values[d.key] = raw;
     else if (d.default?.trim()) values[d.key] = d.default.trim();
+  }
+  for (const key of eventPokemonNameDefs.value) {
+    const raw = (placeholderValues[key] ?? "").trim();
+    if (raw) values[key] = raw;
   }
   return values;
 }
@@ -355,6 +387,139 @@ function resolvedDraftText() {
 }
 
 const previewText = computed(() => resolvedDraftText());
+
+const resolvedNameLen = computed(() => [...previewText.value.name].length);
+const resolvedDetailsLen = computed(() => [...previewText.value.details].length);
+const postLengthBlocked = computed(
+  () =>
+    resolvedNameLen.value > MAX_MEETUP_TITLE ||
+    resolvedDetailsLen.value > MAX_MEETUP_DETAILS,
+);
+
+async function refreshEventPokemonResolve() {
+  const liveName = selectedLiveEvent.value?.eventName || "";
+  const category = liveEventCategory.value || rawPayload.value?.category || "";
+  const language = selectedTemplate.value?.language || "";
+  const seq = ++resolveSeq;
+  if (!liveName && !category) {
+    eventPokemonResolved.value = {};
+    return;
+  }
+  try {
+    const res = await api<{ values: Record<string, string> }>(
+      "/api/placeholders/resolve",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          liveEventName: liveName,
+          category,
+          language,
+        }),
+      },
+    );
+    if (seq !== resolveSeq) return;
+    eventPokemonResolved.value = res.values || {};
+    for (const key of eventPokemonNameDefs.value) {
+      if (eventPokemonDirty.value.has(normalizePlaceholderKey(key))) continue;
+      let fill = "";
+      for (const [k, val] of Object.entries(res.values || {})) {
+        if (normalizePlaceholderKey(k) === normalizePlaceholderKey(key)) {
+          fill = val;
+          break;
+        }
+      }
+      placeholderValues[key] = fill;
+    }
+  } catch {
+    if (seq !== resolveSeq) return;
+    eventPokemonResolved.value = {};
+  }
+}
+
+function onEventPokemonInput(key: string) {
+  eventPokemonDirty.value.add(normalizePlaceholderKey(key));
+}
+
+function placeholderRequired(d: PlaceholderDef): boolean {
+  return !(d.default || "").trim();
+}
+
+function collectPlaceholderOverrides(): Record<string, string> {
+  const customValues: Record<string, string> = {};
+  for (const d of placeholderDefs.value) {
+    const raw = (placeholderValues[d.key] ?? "").trim();
+    const fallback = (d.default || "").trim();
+    if (raw || fallback) customValues[d.key] = raw || fallback;
+  }
+  for (const key of eventPokemonNameDefs.value) {
+    const raw = (placeholderValues[key] ?? "").trim();
+    if (raw) customValues[key] = raw;
+  }
+  return customValues;
+}
+
+function validatePlaceholdersForPost(): string | null {
+  for (const d of placeholderDefs.value) {
+    if (!placeholderRequired(d)) continue;
+    if (!(placeholderValues[d.key] ?? "").trim()) {
+      return `Fill required placeholder: ${d.label || humanizePlaceholderKey(d.key)}`;
+    }
+  }
+  for (const key of eventPokemonNameDefs.value) {
+    if (!(placeholderValues[key] ?? "").trim()) {
+      return `Fill required placeholder: ${humanizePlaceholderKey(key)}`;
+    }
+  }
+  if (postLengthBlocked.value) {
+    return `Title must be at most ${MAX_MEETUP_TITLE} characters and description at most ${MAX_MEETUP_DETAILS} after placeholders`;
+  }
+  return null;
+}
+
+watch(
+  () =>
+    [
+      selectedLiveEvent.value?.eventName || "",
+      liveEventCategory.value,
+      selectedTemplate.value?.language || "",
+      selectedTemplateId.value,
+    ] as const,
+  () => {
+    void refreshEventPokemonResolve();
+  },
+);
+
+/** Prefill editable eventPokemon fields when the token is newly typed into the draft. */
+watch(
+  eventPokemonNameDefs,
+  (keys) => {
+    const resolved = eventPokemonResolved.value;
+    for (const key of keys) {
+      if (eventPokemonDirty.value.has(normalizePlaceholderKey(key))) continue;
+      if ((placeholderValues[key] ?? "").trim()) continue;
+      let fill = "";
+      for (const [k, val] of Object.entries(resolved)) {
+        if (normalizePlaceholderKey(k) === normalizePlaceholderKey(key)) {
+          fill = val;
+          break;
+        }
+      }
+      if (fill) placeholderValues[key] = fill;
+    }
+    if (
+      keys.length &&
+      !Object.keys(resolved).length &&
+      (selectedLiveEvent.value?.eventName || liveEventCategory.value)
+    ) {
+      void refreshEventPokemonResolve();
+    }
+  },
+  { deep: true },
+);
+
+watch(selectedLiveEventId, () => {
+  eventPokemonDirty.value = new Set();
+});
 
 async function resolveSchedule(opts?: {
   liveEvent?: LiveEvent | null;
@@ -836,12 +1001,7 @@ function clubEventOptionLabel(ev: ClubEvent) {
 function buildEditBody(): EditMeetupInput {
   const cover = draft.coverPhotoUrl || "";
   const photoChanged = cover !== (originalCoverPhotoUrl.value || "");
-  const customValues: Record<string, string> = {};
-  for (const d of placeholderDefs.value) {
-    const raw = (placeholderValues[d.key] ?? "").trim();
-    const fallback = (d.default || "").trim();
-    if (raw || fallback) customValues[d.key] = raw || fallback;
-  }
+  const customValues = collectPlaceholderOverrides();
   return {
     name: draft.name.trim(),
     details: draft.details,
@@ -860,17 +1020,13 @@ function buildEditBody(): EditMeetupInput {
     liveEventName: selectedLiveEvent.value?.eventName || undefined,
     category: liveEventCategory.value || rawPayload.value?.category || undefined,
     timeZone: timeZone.value,
+    language: selectedTemplate.value?.language || undefined,
     ...(Object.keys(customValues).length ? { placeholderValues: customValues } : {}),
   };
 }
 
 function buildDraftPayload(): DraftMeetupPayload {
-  const customValues: Record<string, string> = {};
-  for (const d of placeholderDefs.value) {
-    const raw = (placeholderValues[d.key] ?? "").trim();
-    const fallback = (d.default || "").trim();
-    if (raw || fallback) customValues[d.key] = raw || fallback;
-  }
+  const customValues = collectPlaceholderOverrides();
   return {
     templateName: selectedTemplate.value?.name || "Custom",
     ...(selectedTemplate.value ? { templateId: selectedTemplate.value.id } : {}),
@@ -951,18 +1107,27 @@ function loadDraftFromPayload(p: DraftMeetupPayload) {
   selectedLiveEventId.value = p.liveEventId || "";
   selectedTemplateId.value = resolveDraftTemplateId(p);
   for (const k of Object.keys(placeholderValues)) delete placeholderValues[k];
+  eventPokemonDirty.value = new Set();
   for (const d of placeholderDefs.value) {
     placeholderValues[d.key] = "";
+  }
+  for (const key of eventPokemonNameDefs.value) {
+    placeholderValues[key] = "";
   }
   for (const [k, v] of Object.entries(p.placeholderValues || {})) {
     if (typeof v !== "string") continue;
     const match = placeholderDefs.value.find(
       (d) => normalizePlaceholderKey(d.key) === normalizePlaceholderKey(k),
     );
-    placeholderValues[match?.key || k] = v;
+    const key = match?.key || k;
+    placeholderValues[key] = v;
+    if (isEventPokemonNameKey(key) && v.trim()) {
+      eventPokemonDirty.value.add(normalizePlaceholderKey(key));
+    }
   }
   draftReady.value = true;
   endProgrammaticUpdate();
+  void refreshEventPokemonResolve();
 }
 
 async function applyDraftRoute() {
@@ -1048,16 +1213,30 @@ async function askCreateMeetup() {
     error.value = issue;
     return;
   }
+  const phIssue = validatePlaceholdersForPost();
+  if (phIssue) {
+    error.value = phIssue;
+    return;
+  }
   confirmCreateOpen.value = true;
 }
 
 async function createMeetup() {
   confirmCreateOpen.value = false;
+  const phIssue = validatePlaceholdersForPost();
+  if (phIssue) {
+    error.value = phIssue;
+    return;
+  }
   creating.value = true;
   error.value = "";
   success.value = "";
   try {
-    const body = buildMeetupBodyFromDraft(buildDraftPayload(), timeZone.value);
+    const body = buildMeetupBodyFromDraft(
+      buildDraftPayload(),
+      timeZone.value,
+      selectedTemplate.value?.language || undefined,
+    );
     const event = await api<{ id: string; name: string }>("/api/campfire/meetups", {
       method: "POST",
       headers: authHeaders(),
@@ -1097,6 +1276,11 @@ async function saveEditedMeetup() {
   }
   if (issue) {
     error.value = issue;
+    return;
+  }
+  const phIssue = validatePlaceholdersForPost();
+  if (phIssue) {
+    error.value = phIssue;
     return;
   }
 
@@ -1272,18 +1456,49 @@ function templateOptionLabel(t: MeetupTemplate) {
       <div v-if="selectionReady" class="field">
         <label>Placeholders</label>
         <div class="placeholder-fill placeholder-grid">
-          <p class="hint muted" style="grid-column: 1 / -1; margin: 0">
-            Custom fields for this template:
-          </p>
-          <div v-for="d in placeholderDefs" :key="d.key" class="field ph-item">
-            <label :for="`ph-${d.key}`">{{ d.label || humanizePlaceholderKey(d.key) }}</label>
-            <input
-              :id="`ph-${d.key}`"
-              v-model="placeholderValues[d.key]"
-              type="text"
-              :placeholder="d.default || d.label || humanizePlaceholderKey(d.key)"
-            />
-          </div>
+          <template v-if="eventPokemonNameDefs.length">
+            <p class="hint muted" style="grid-column: 1 / -1; margin: 0">
+              From live event (editable):
+            </p>
+            <div
+              v-for="key in eventPokemonNameDefs"
+              :key="`ep-${key}`"
+              class="field ph-item"
+            >
+              <label :for="`ph-${key}`">
+                {{ humanizePlaceholderKey(key) }}
+                <span class="req">*</span>
+              </label>
+              <input
+                :id="`ph-${key}`"
+                v-model="placeholderValues[key]"
+                type="text"
+                required
+                @input="onEventPokemonInput(key)"
+              />
+            </div>
+          </template>
+          <template v-if="placeholderDefs.length">
+            <p class="hint muted" style="grid-column: 1 / -1; margin: 0">
+              Custom fields for this template:
+            </p>
+            <div v-for="d in placeholderDefs" :key="d.key" class="field ph-item">
+              <label :for="`ph-${d.key}`">
+                {{ d.label || humanizePlaceholderKey(d.key) }}
+                <span v-if="placeholderRequired(d)" class="req">*</span>
+              </label>
+              <input
+                :id="`ph-${d.key}`"
+                v-model="placeholderValues[d.key]"
+                type="text"
+                :required="placeholderRequired(d)"
+                :placeholder="d.default || d.label || humanizePlaceholderKey(d.key)"
+              />
+              <p v-if="d.default && !placeholderRequired(d)" class="hint muted">
+                Default: {{ d.default }}
+              </p>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -1323,12 +1538,19 @@ function templateOptionLabel(t: MeetupTemplate) {
           </p>
 
           <div class="field">
-            <label for="name">Title</label>
-            <input
+            <label for="name">
+              Title
+              <span
+                class="char-count muted"
+                :class="{ over: resolvedNameLen > MAX_MEETUP_TITLE }"
+              >
+                {{ resolvedNameLen }} / {{ MAX_MEETUP_TITLE }}
+              </span>
+            </label>
+            <PlaceholderTextField
               v-if="textViewMode === 'edit' || !selectedTemplate"
               id="name"
               v-model="draft.name"
-              type="text"
               required
             />
             <input
@@ -1342,22 +1564,35 @@ function templateOptionLabel(t: MeetupTemplate) {
           </div>
 
           <div class="field field-details">
-            <label for="details">Description</label>
-            <textarea
+            <label for="details">
+              Description
+              <span
+                class="char-count muted"
+                :class="{ over: resolvedDetailsLen > MAX_MEETUP_DETAILS }"
+              >
+                {{ resolvedDetailsLen }} / {{ MAX_MEETUP_DETAILS }}
+              </span>
+            </label>
+            <PlaceholderTextField
               v-if="textViewMode === 'edit' || !selectedTemplate"
               id="details"
               v-model="draft.details"
-              rows="3"
+              multiline
+              :rows="10"
             />
             <textarea
               v-else
               id="details-preview"
               :value="previewText.details"
-              rows="3"
+              rows="10"
               readonly
               class="preview-field"
             />
             <PlaceholderHelp compact />
+            <p v-if="postLengthBlocked" class="error" style="margin-top: 0.35rem">
+              Resolved title must be ≤ {{ MAX_MEETUP_TITLE }} characters and description ≤
+              {{ MAX_MEETUP_DETAILS }} to post (drafts can still be saved).
+            </p>
           </div>
 
           <div class="row-2">
@@ -1492,7 +1727,7 @@ function templateOptionLabel(t: MeetupTemplate) {
             v-if="editingDraftId == null"
             type="button"
             class="primary"
-            :disabled="creating || !canCreate"
+            :disabled="creating || !canCreate || postLengthBlocked"
             @click="askCreateMeetup"
           >
             <Icon name="post" />
@@ -1503,7 +1738,7 @@ function templateOptionLabel(t: MeetupTemplate) {
           <button
             type="button"
             class="primary"
-            :disabled="creating || !canSaveEdit"
+            :disabled="creating || !canSaveEdit || postLengthBlocked"
             @click="saveEditedMeetup"
           >
             <Icon name="save" />
@@ -1653,12 +1888,20 @@ function templateOptionLabel(t: MeetupTemplate) {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: 8rem;
+  min-height: 14rem;
   margin-bottom: 0.7rem !important;
 }
+.field-details :deep(.ph-field.multiline) {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 12rem;
+}
+.field-details :deep(.ph-field.multiline .ph-input),
+.field-details :deep(.ph-field.multiline .ph-mirror),
 .field-details textarea {
   flex: 1 1 auto;
-  min-height: 6rem;
+  min-height: 12rem;
   height: 100%;
   width: 100%;
   max-width: 100%;
@@ -1704,6 +1947,19 @@ function templateOptionLabel(t: MeetupTemplate) {
 .ph-item {
   margin-bottom: 0 !important;
 }
+.req {
+  color: var(--danger, #b91c1c);
+  font-weight: 700;
+}
+.char-count {
+  float: right;
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+.char-count.over {
+  color: var(--danger, #b91c1c);
+  font-weight: 700;
+}
 @media (max-width: 900px) {
   .setup-grid {
     grid-template-columns: 1fr;
@@ -1715,10 +1971,15 @@ function templateOptionLabel(t: MeetupTemplate) {
     grid-template-columns: 1fr;
   }
   .field-details {
+    min-height: 16rem;
+  }
+  .field-details :deep(.ph-field.multiline) {
     min-height: 14rem;
   }
+  .field-details :deep(.ph-field.multiline .ph-input),
+  .field-details :deep(.ph-field.multiline .ph-mirror),
   .field-details textarea {
-    min-height: 12rem;
+    min-height: 14rem;
   }
   .editor-side :deep(.location-map) {
     height: 220px;

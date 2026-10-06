@@ -72,6 +72,7 @@ export function resolveDraftDisplay(
 export function buildMeetupBodyFromDraft(
   item: DraftMeetupPayload,
   timeZone?: string,
+  language?: string,
 ): CreateMeetupInput {
   const jitter = Math.max(0, Number(item.locationJitterMeters) || 0);
   const jittered = randomOffsetLatLng(item.location, jitter);
@@ -93,6 +94,7 @@ export function buildMeetupBodyFromDraft(
     liveEventName: item.liveEventName || undefined,
     category: item.category || undefined,
     timeZone: timeZone || undefined,
+    language: language || undefined,
     ...(item.placeholderValues && Object.keys(item.placeholderValues).length
       ? { placeholderValues: item.placeholderValues }
       : {}),

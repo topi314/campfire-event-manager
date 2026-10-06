@@ -1,6 +1,7 @@
 package placeholders
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -85,8 +86,24 @@ func TestResolveAndApply(t *testing.T) {
 	}
 }
 
-func TestIsBuiltin(t *testing.T) {
-	if !IsBuiltin("LiveEvent") || IsBuiltin("city") {
-		t.Fatal("builtin checks failed")
+func TestApplyIndexedEventPokemon(t *testing.T) {
+	ctx := Context{
+		LiveEventName:    "Raid Hour: Squirtle, Wartortle",
+		Category:         "Raid Hour",
+		Language:         "en",
+		CategoryPatterns: map[string][]string{"Raid Hour": {"Raid Hour"}},
+	}
+	fields := ResolveAndApply(TextFields{
+		Details: "{{eventPokemon[1]}} / {{eventPokemonCeilingRaid[1]}} / {{eventPokemon[9]}}",
+	}, ctx, nil)
+	if !strings.Contains(fields.Details, "Squirtle") {
+		t.Fatalf("details=%q", fields.Details)
+	}
+	if !strings.Contains(fields.Details, " CP") {
+		t.Fatalf("expected CP unit, got %q", fields.Details)
+	}
+	// OOB index → empty (trailing slash space)
+	if strings.Contains(fields.Details, "{{") {
+		t.Fatalf("expected OOB emptied, got %q", fields.Details)
 	}
 }

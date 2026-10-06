@@ -1,5 +1,5 @@
-/** Match {{key}} tokens. Keys: letters, digits, underscore, hyphen. */
-const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*)\s*\}\}/g;
+/** Match {{key}} or {{key[1]}} tokens. */
+export const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*(?:\[[0-9]+\])?)\s*\}\}/g;
 
 export type PlaceholderDef = {
   key: string;
@@ -13,6 +13,8 @@ export type BuiltinPlaceholder = {
   label: string;
   description: string;
   example: string;
+  /** Help section grouping. */
+  group?: "core" | "eventPokemon";
 };
 
 export type BuiltinPlaceholderContext = {
@@ -32,7 +34,21 @@ export type BuiltinPlaceholderContext = {
   /** Map pin coordinates. */
   latitude?: number | null;
   longitude?: number | null;
+  /** Extra values from backend event-pokemon resolve. */
+  eventPokemonValues?: Record<string, string>;
 };
+
+export const EVENT_POKEMON_BASE_KEYS = [
+  "eventPokemon",
+  "eventPokemonCeilingResearch",
+  "eventPokemonCeilingRaid",
+  "eventPokemonCeilingEgg",
+  "eventPokemonCeilingRaidWeather",
+  "eventPokemonFloorResearch",
+  "eventPokemonFloorRaid",
+  "eventPokemonFloorEgg",
+  "eventPokemonFloorRaidWeather",
+] as const;
 
 export const BUILTIN_PLACEHOLDERS: BuiltinPlaceholder[] = [
   {
@@ -40,84 +56,175 @@ export const BUILTIN_PLACEHOLDERS: BuiltinPlaceholder[] = [
     label: "Club",
     description: "Name of the Campfire club you selected.",
     example: "PoGo Offenbach",
+    group: "core",
   },
   {
     key: "liveEvent",
     label: "Live event",
     description: "Campfire live event title, or empty if none is linked.",
     example: "Community Day",
+    group: "core",
   },
   {
     key: "category",
     label: "Category",
     description: "Inferred live-event category (e.g. Community Day, Raid Hour).",
     example: "Community Day",
+    group: "core",
   },
   {
     key: "title",
     label: "Title",
     description: "Meetup title from the create form (useful in the description).",
     example: "Community Day — Downtown",
+    group: "core",
   },
   {
     key: "address",
     label: "Address",
     description: "Address field from the create form.",
     example: "Main Station, Platform 3",
+    group: "core",
   },
   {
     key: "lat",
     label: "Latitude",
     description: "Map pin latitude (before jitter).",
     example: "50.110922",
+    group: "core",
   },
   {
     key: "lng",
     label: "Longitude",
     description: "Map pin longitude (before jitter).",
     example: "8.682127",
+    group: "core",
   },
   {
     key: "date",
     label: "Date",
     description: "Meetup calendar day as a readable date (from the live event, or today).",
     example: "Sep 30, 2026",
+    group: "core",
   },
   {
     key: "dateShort",
     label: "Date (short)",
     description: "Meetup calendar day as YYYY-MM-DD.",
     example: "2026-09-30",
+    group: "core",
   },
   {
     key: "weekday",
     label: "Weekday",
     description: "Weekday name for the meetup day.",
     example: "Wednesday",
+    group: "core",
   },
   {
     key: "startTime",
     label: "Start time",
     description: "Meetup start clock time (HH:mm).",
     example: "14:00",
+    group: "core",
   },
   {
     key: "endTime",
     label: "End time",
     description: "Meetup end clock time (HH:mm).",
     example: "17:00",
+    group: "core",
   },
   {
     key: "timezone",
     label: "Timezone",
     description: "Your Settings timezone used for wall-clock times.",
     example: "Europe/Berlin",
+    group: "core",
+  },
+  {
+    key: "eventPokemon",
+    label: "Event Pokémon",
+    description:
+      "Featured species extracted from the live event title (translated to the template language). Editable on create when used. Multiple names joined with commas.",
+    example: "Squirtle, Wartortle",
+    group: "eventPokemon",
+  },
+  {
+    key: "eventPokemonCeilingResearch",
+    label: "Ceiling IV research CP/WP",
+    description:
+      "Ceiling IV (15/15/15) Combat Power at research level 15. Not editable. Unit follows template language (CP / WP / PC).",
+    example: "1199 WP",
+    group: "eventPokemon",
+  },
+  {
+    key: "eventPokemonCeilingRaid",
+    label: "Ceiling IV raid CP/WP",
+    description: "Ceiling IV at raid catch level 20. Not editable.",
+    example: "1598 CP",
+    group: "eventPokemon",
+  },
+  {
+    key: "eventPokemonCeilingEgg",
+    label: "Ceiling IV egg CP/WP",
+    description: "Ceiling IV at egg hatch level 20 (same number as raid). Not editable.",
+    example: "1598 CP",
+    group: "eventPokemon",
+  },
+  {
+    key: "eventPokemonCeilingRaidWeather",
+    label: "Ceiling IV weather raid CP/WP",
+    description: "Ceiling IV at weather-boosted raid level 25. Not editable.",
+    example: "1998 CP",
+    group: "eventPokemon",
+  },
+  {
+    key: "eventPokemonFloorResearch",
+    label: "Floor IV research CP/WP",
+    description: "Floor IV (10/10/10) at research level 15. Not editable.",
+    example: "1142 WP",
+    group: "eventPokemon",
+  },
+  {
+    key: "eventPokemonFloorRaid",
+    label: "Floor IV raid CP/WP",
+    description: "Floor IV at raid level 20. Not editable.",
+    example: "1522 CP",
+    group: "eventPokemon",
+  },
+  {
+    key: "eventPokemonFloorEgg",
+    label: "Floor IV egg CP/WP",
+    description: "Floor IV at egg level 20. Not editable.",
+    example: "1522 CP",
+    group: "eventPokemon",
+  },
+  {
+    key: "eventPokemonFloorRaidWeather",
+    label: "Floor IV weather raid CP/WP",
+    description: "Floor IV at weather-boosted raid level 25. Not editable.",
+    example: "1903 CP",
+    group: "eventPokemon",
   },
 ];
 
 /** Case-insensitive identity for placeholder keys. */
 export function normalizePlaceholderKey(key: string): string {
   return key.trim().toLowerCase();
+}
+
+const INDEX_SUFFIX_RE = /\[([0-9]+)\]$/;
+
+/** Split eventPokemon[2] → { base: "eventPokemon", index: 2 }. */
+export function splitPlaceholderIndex(key: string): {
+  base: string;
+  index: number | null;
+} {
+  const trimmed = key.trim();
+  const m = INDEX_SUFFIX_RE.exec(trimmed);
+  if (!m) return { base: trimmed, index: null };
+  return { base: trimmed.slice(0, m.index), index: Number(m[1]) };
 }
 
 const builtinByNorm = new Map(
@@ -130,11 +237,29 @@ const builtinByNorm = new Map(
  */
 export function canonicalPlaceholderKey(key: string): string {
   const trimmed = key.trim();
-  return builtinByNorm.get(normalizePlaceholderKey(trimmed)) || trimmed;
+  const { base, index } = splitPlaceholderIndex(trimmed);
+  const canonBase = builtinByNorm.get(normalizePlaceholderKey(base));
+  if (canonBase) {
+    return index != null ? `${canonBase}[${index}]` : canonBase;
+  }
+  return trimmed;
 }
 
 export function isBuiltinPlaceholder(key: string): boolean {
-  return builtinByNorm.has(normalizePlaceholderKey(key));
+  const { base } = splitPlaceholderIndex(key);
+  return builtinByNorm.has(normalizePlaceholderKey(base));
+}
+
+/** True for eventPokemon / eventPokemon[i] (editable name builtins). */
+export function isEventPokemonNameKey(key: string): boolean {
+  const { base } = splitPlaceholderIndex(key);
+  return normalizePlaceholderKey(base) === "eventpokemon";
+}
+
+export function isEventPokemonBaseKey(key: string): boolean {
+  const { base } = splitPlaceholderIndex(key);
+  const n = normalizePlaceholderKey(base);
+  return EVENT_POKEMON_BASE_KEYS.some((k) => normalizePlaceholderKey(k) === n);
 }
 
 /** Look up a value by key, ignoring differences in letter case. */
@@ -211,6 +336,12 @@ export function resolveBuiltinPlaceholderValues(
   const out: Record<string, string> = {};
   for (const b of BUILTIN_PLACEHOLDERS) {
     out[b.key] = byCanonical[b.key] ?? "";
+  }
+  // Event-pokemon values (and indexes) come from the backend resolve API.
+  if (ctx.eventPokemonValues) {
+    for (const [k, v] of Object.entries(ctx.eventPokemonValues)) {
+      out[canonicalPlaceholderKey(k)] = v;
+    }
   }
   return out;
 }
@@ -311,7 +442,10 @@ export function resolveCustomPlaceholderDefs(
 export function applyPlaceholders(text: string, values: Record<string, string>): string {
   return text.replace(PLACEHOLDER_RE, (_, key: string) => {
     const v = lookupPlaceholderValue(values, key);
-    return v != null ? v : `{{${key}}}`;
+    if (v != null) return v;
+    // Event-pokemon builtins (incl. OOB indexes) resolve to empty when missing.
+    if (isEventPokemonBaseKey(key)) return "";
+    return `{{${key}}}`;
   });
 }
 

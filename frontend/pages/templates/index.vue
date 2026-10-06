@@ -4,7 +4,6 @@ import { formatInstant } from "~/utils/datetime";
 import { TEMPLATE_CATEGORY_OPTIONS } from "~/utils/eventCategory";
 import {
   TEMPLATE_LANGUAGES,
-  guessTemplateLanguage,
   templateLanguageLabel,
 } from "~/utils/languages";
 import { coverImageSrc } from "~/utils/covers";
@@ -29,7 +28,6 @@ const importing = ref(false);
 const publishingId = ref<number | null>(null);
 const publishTarget = ref<MeetupTemplate | null>(null);
 const publishDescription = ref("");
-const publishLanguage = ref(guessTemplateLanguage());
 const preview = ref<MeetupTemplate | null>(null);
 
 const filterQ = ref("");
@@ -180,14 +178,11 @@ async function remove(id: number) {
 function openPublishModal(t: MeetupTemplate) {
   publishTarget.value = t;
   publishDescription.value = (t.publishDescription || "").trim();
-  const existing = (t.language || "").trim().toLowerCase();
-  publishLanguage.value = (
-    TEMPLATE_LANGUAGES.some((l) => l.code === existing)
-      ? existing
-      : guessTemplateLanguage()
-  ) as typeof publishLanguage.value;
   error.value = "";
   success.value = "";
+  if (!(t.language || "").trim()) {
+    error.value = "Set a language on the template (edit) before publishing";
+  }
 }
 
 function closePublishModal() {
@@ -199,8 +194,8 @@ function closePublishModal() {
 async function confirmPublish() {
   const t = publishTarget.value;
   if (!t) return;
-  if (!publishLanguage.value) {
-    error.value = "Pick a language for the listing";
+  if (!(t.language || "").trim()) {
+    error.value = "Set a language on the template (edit) before publishing";
     return;
   }
   publishingId.value = t.id;
@@ -210,7 +205,6 @@ async function confirmPublish() {
       method: "POST",
       body: JSON.stringify({
         description: publishDescription.value.trim(),
-        language: publishLanguage.value,
       }),
     });
     await load();
@@ -509,16 +503,10 @@ function download(t: MeetupTemplate) {
             </h2>
             <p class="muted">
               Share “{{ publishTarget.name }}” with other Community Ambassadors.
-              Add an optional short description for the listing.
+              Language:
+              <strong>{{ templateLanguageLabel(publishTarget.language) || "—" }}</strong>
+              (set when editing the template).
             </p>
-            <div class="field">
-              <label for="publish-lang">Language</label>
-              <select id="publish-lang" v-model="publishLanguage" required>
-                <option v-for="l in TEMPLATE_LANGUAGES" :key="l.code" :value="l.code">
-                  {{ l.label }}
-                </option>
-              </select>
-            </div>
             <div class="field">
               <label for="publish-desc">Listing description (optional)</label>
               <textarea
@@ -537,7 +525,7 @@ function download(t: MeetupTemplate) {
               <button
                 type="button"
                 class="primary"
-                :disabled="!!publishingId"
+                :disabled="!!publishingId || !(publishTarget.language || '').trim()"
                 @click="confirmPublish"
               >
                 {{

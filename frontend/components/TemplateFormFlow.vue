@@ -58,7 +58,11 @@ async function loadTemplate(id: number) {
   }
 }
 
-async function onSave(data: { name: string; payload: MeetupPayload }) {
+async function onSave(data: {
+  name: string;
+  payload: MeetupPayload;
+  language: string;
+}) {
   saving.value = true;
   error.value = "";
   try {
@@ -122,6 +126,7 @@ function cancelEditor() {
       <TemplateEditor
         v-if="ready"
         :template-name="editing?.name || ''"
+        :template-language="editing?.language || null"
         :model-value="editing ? parsePayload(editing) : null"
         :saving="saving"
         :submit-label="isEdit ? 'Update template' : 'Create template'"

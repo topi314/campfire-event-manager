@@ -20,28 +20,41 @@ import {
   TEMPLATE_CATEGORY_OPTIONS,
   isTemplateCategoryOption,
 } from "~/utils/eventCategory";
+import {
+  TEMPLATE_LANGUAGES,
+  guessTemplateLanguage,
+  isTemplateLanguageCode,
+  type TemplateLanguageCode,
+} from "~/utils/languages";
 
 const props = withDefaults(
   defineProps<{
     modelValue?: MeetupPayload | null;
     templateName?: string;
+    templateLanguage?: string | null;
     saving?: boolean;
     submitLabel?: string;
   }>(),
   {
     modelValue: null,
     templateName: "",
+    templateLanguage: null,
     saving: false,
     submitLabel: "Save template",
   },
 );
 
 const emit = defineEmits<{
-  save: [data: { name: string; payload: MeetupPayload }];
+  save: [data: { name: string; payload: MeetupPayload; language: TemplateLanguageCode }];
   cancel: [];
 }>();
 
 const name = ref(props.templateName);
+const language = ref<TemplateLanguageCode>(
+  isTemplateLanguageCode(props.templateLanguage || "")
+    ? (props.templateLanguage as TemplateLanguageCode)
+    : guessTemplateLanguage(),
+);
 const form = reactive({
   title: "",
   details: "",
@@ -108,13 +121,16 @@ watch(detectedKeys, (keys) => {
 });
 
 watch(
-  () => [props.modelValue, props.templateName] as const,
+  () => [props.modelValue, props.templateName, props.templateLanguage] as const,
   () => loadFromProps(),
   { immediate: true, deep: true },
 );
 
 function loadFromProps() {
   name.value = props.templateName || "";
+  language.value = isTemplateLanguageCode(props.templateLanguage || "")
+    ? (props.templateLanguage as TemplateLanguageCode)
+    : guessTemplateLanguage();
   const p = props.modelValue;
   if (!p) {
     form.title = "";
@@ -222,7 +238,7 @@ function onSubmit() {
   }
   timeError.value = "";
   const tplName = name.value.trim() || form.title.trim() || "Untitled template";
-  emit("save", { name: tplName, payload: buildPayload() });
+  emit("save", { name: tplName, payload: buildPayload(), language: language.value });
 }
 </script>
 
@@ -236,6 +252,16 @@ function onSubmit() {
       <div class="field">
         <label for="tpl-name">Template name</label>
         <input id="tpl-name" v-model="name" type="text" required placeholder="e.g. Community Day" />
+      </div>
+
+      <div class="field">
+        <label for="tpl-language">Language</label>
+        <select id="tpl-language" v-model="language" required>
+          <option v-for="l in TEMPLATE_LANGUAGES" :key="l.code" :value="l.code">
+            {{ l.label }}
+          </option>
+        </select>
+        <p class="hint muted">Used for Browse listings and Pokémon name / CP unit (CP/WP/PC).</p>
       </div>
 
       <div class="field">
@@ -291,10 +317,9 @@ function onSubmit() {
 
         <div class="field">
           <label for="tpl-title">Title</label>
-          <input
+          <PlaceholderTextField
             id="tpl-title"
             v-model="form.title"
-            type="text"
             required
             :placeholder="'{{liveEvent}} — {{city}}'"
           />
@@ -302,8 +327,13 @@ function onSubmit() {
 
         <div class="field field-details">
           <label for="tpl-details">Description</label>
-          <textarea id="tpl-details" v-model="form.details" rows="3" />
-          <PlaceholderHelp compact />
+          <PlaceholderTextField
+            id="tpl-details"
+            v-model="form.details"
+            multiline
+            :rows="10"
+          />
+          <PlaceholderHelp />
         </div>
 
         <div class="row-2">
@@ -495,12 +525,20 @@ function onSubmit() {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  min-height: 8rem;
+  min-height: 14rem;
   margin-bottom: 0.7rem !important;
 }
+.field-details :deep(.ph-field.multiline) {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 12rem;
+}
+.field-details :deep(.ph-field.multiline .ph-input),
+.field-details :deep(.ph-field.multiline .ph-mirror),
 .field-details textarea {
   flex: 1 1 auto;
-  min-height: 6rem;
+  min-height: 12rem;
   height: 100%;
   width: 100%;
   max-width: 100%;

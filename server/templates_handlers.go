@@ -17,8 +17,9 @@ import (
 )
 
 type templateBody struct {
-	Name    string          `json:"name"`
-	Payload json.RawMessage `json:"payload"`
+	Name     string          `json:"name"`
+	Payload  json.RawMessage `json:"payload"`
+	Language string          `json:"language"`
 }
 
 func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +70,12 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	t, err := s.createTemplateRow(r.Context(), session.Session.UserID, body.Name, body.Payload, nil)
+	lang := languages.Normalize(body.Language)
+	if lang == "" {
+		writeError(w, http.StatusBadRequest, "language is required")
+		return
+	}
+	t, err := s.createTemplateRow(r.Context(), session.Session.UserID, body.Name, body.Payload, lang, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create template")
 		return
@@ -77,7 +83,7 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, t)
 }
 
-func (s *Server) createTemplateRow(ctx context.Context, userID, name string, payload json.RawMessage, originID *int64) (MeetupTemplate, error) {
+func (s *Server) createTemplateRow(ctx context.Context, userID, name string, payload json.RawMessage, language string, originID *int64) (MeetupTemplate, error) {
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
@@ -88,6 +94,7 @@ func (s *Server) createTemplateRow(ctx context.Context, userID, name string, pay
 		TemplatePayload:       payload,
 		TemplateOriginID:      database.Int8Ptr(originID),
 		TemplateSynced:        originID != nil,
+		TemplateLanguage:      database.Text(languages.Normalize(language)),
 		TemplateCreatedAt:     database.Ts(now),
 		TemplateUpdatedAt:     database.Ts(now),
 	})
@@ -114,6 +121,11 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	lang := languages.Normalize(body.Language)
+	if lang == "" {
+		writeError(w, http.StatusBadRequest, "language is required")
+		return
+	}
 	if len(body.Payload) == 0 {
 		body.Payload = json.RawMessage(`{}`)
 	}
@@ -121,6 +133,7 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
 	row, err := s.db.UpdateTemplate(r.Context(), dbsqlc.UpdateTemplateParams{
 		TemplateName:          body.Name,
 		TemplatePayload:       body.Payload,
+		TemplateLanguage:      database.Text(lang),
 		TemplateID:            id,
 		TemplateDiscordUserID: session.Session.UserID,
 		TemplateUpdatedAt:     database.Ts(now),
@@ -175,11 +188,10 @@ func (s *Server) setTemplatePublish(w http.ResponseWriter, r *http.Request, publ
 	}
 
 	description := ""
-	language := ""
 	if published {
 		var body struct {
 			Description string `json:"description"`
-			Language    string `json:"language"`
+			Language    string `json:"language"` // optional override; prefer stored template language
 		}
 		if err := decodeJSON(r, &body); err != nil && !errors.Is(err, io.EOF) {
 			writeError(w, http.StatusBadRequest, "invalid json")
@@ -190,16 +202,31 @@ func (s *Server) setTemplatePublish(w http.ResponseWriter, r *http.Request, publ
 			writeError(w, http.StatusBadRequest, "description must be 500 characters or fewer")
 			return
 		}
-		language = languages.Normalize(body.Language)
-		if language == "" {
-			writeError(w, http.StatusBadRequest, "language is required")
-			return
-		}
 	}
 
 	now := time.Now().UTC()
 	var t MeetupTemplate
 	if published {
+		existing, err := s.db.GetTemplateForUser(r.Context(), dbsqlc.GetTemplateForUserParams{
+			TemplateID:            id,
+			TemplateDiscordUserID: session.Session.UserID,
+		})
+		if err != nil {
+			if database.IsNotFound(err) {
+				writeError(w, http.StatusNotFound, "template not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to load template")
+			return
+		}
+		language := ""
+		if existing.TemplateLanguage.Valid {
+			language = languages.Normalize(existing.TemplateLanguage.String)
+		}
+		if language == "" {
+			writeError(w, http.StatusBadRequest, "set a language on the template before publishing")
+			return
+		}
 		row, err := s.db.PublishTemplate(r.Context(), dbsqlc.PublishTemplateParams{
 			Now:         database.Ts(now),
 			Description: database.Text(description),
@@ -336,12 +363,19 @@ func (s *Server) cloneTemplate(w http.ResponseWriter, r *http.Request) {
 	if src.PublishedAt != nil {
 		payload = stripSharedFieldsFromPayload(src.Payload)
 	}
-	t, err := s.createTemplateRow(r.Context(), session.Session.UserID, src.Name, payload, &originID)
+	t, err := s.createTemplateRow(r.Context(), session.Session.UserID, src.Name, payload, ptrString(src.Language), &originID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to clone template")
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+func ptrString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 func (s *Server) getProfile(w http.ResponseWriter, r *http.Request) {
@@ -448,7 +482,7 @@ func (s *Server) importTemplates(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(name) == "" {
 			name = "Imported template"
 		}
-		t, err := s.createTemplateRow(r.Context(), session.Session.UserID, name, payload, nil)
+		t, err := s.createTemplateRow(r.Context(), session.Session.UserID, name, payload, "", nil)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to import template")
 			return

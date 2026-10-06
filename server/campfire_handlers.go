@@ -180,6 +180,7 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		LiveEventName                string            `json:"liveEventName"`
 		Category                     string            `json:"category"`
 		TimeZone                     string            `json:"timeZone"`
+		Language                     string            `json:"language"`
 		PlaceholderValues            map[string]string `json:"placeholderValues"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
@@ -220,11 +221,16 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 			LiveEventName:     body.LiveEventName,
 			Category:          body.Category,
 			TimeZone:          body.TimeZone,
+			Language:          body.Language,
 			PlaceholderValues: body.PlaceholderValues,
 		},
 	)
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if msg := meetupTextOverLimit(name, details); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
 
@@ -308,6 +314,7 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 		LiveEventName                string            `json:"liveEventName"`
 		Category                     string            `json:"category"`
 		TimeZone                     string            `json:"timeZone"`
+		Language                     string            `json:"language"`
 		PlaceholderValues            map[string]string `json:"placeholderValues"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
@@ -347,11 +354,16 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 			LiveEventName:     body.LiveEventName,
 			Category:          body.Category,
 			TimeZone:          body.TimeZone,
+			Language:          body.Language,
 			PlaceholderValues: body.PlaceholderValues,
 		},
 	)
 	if name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if msg := meetupTextOverLimit(name, details); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
 

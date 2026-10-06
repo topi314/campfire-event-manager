@@ -82,6 +82,8 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("GET /api/me", s.requireAuth(s.apiMe))
 	mux.HandleFunc("PATCH /api/me", s.requireAuth(s.apiUpdateMe))
 
+	mux.HandleFunc("POST /api/placeholders/resolve", s.requireAuth(s.resolvePlaceholders))
+
 	mux.HandleFunc("GET /api/templates", s.requireAuth(s.listTemplates))
 	mux.HandleFunc("POST /api/templates", s.requireAuth(s.createTemplate))
 	mux.HandleFunc("POST /api/templates/import", s.requireAuth(s.importTemplates))

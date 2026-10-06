@@ -1,4 +1,4 @@
-/** Languages offered when publishing templates (ISO 639-1 codes). */
+/** Languages offered for templates (ISO 639-1 codes). */
 export const TEMPLATE_LANGUAGES = [
   { code: "af", label: "Afrikaans" },
   { code: "sq", label: "Albanian" },

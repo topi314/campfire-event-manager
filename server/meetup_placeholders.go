@@ -4,10 +4,15 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/topi314/campfire-event-manager/internal/eventcategory"
 	"github.com/topi314/campfire-event-manager/server/auth"
 	"github.com/topi314/campfire-event-manager/server/placeholders"
 )
+
+const maxMeetupTitleRunes = 120
+const maxMeetupDetailsRunes = 1000
 
 // meetupPlaceholderMeta is optional context sent with create/edit so the
 // server can resolve {{tokens}} before talking to Campfire.
@@ -16,6 +21,7 @@ type meetupPlaceholderMeta struct {
 	LiveEventName     string            `json:"liveEventName"`
 	Category          string            `json:"category"`
 	TimeZone          string            `json:"timeZone"`
+	Language          string            `json:"language"`
 	PlaceholderValues map[string]string `json:"placeholderValues"`
 }
 
@@ -63,14 +69,16 @@ func (s *Server) applyMeetupPlaceholders(
 	meta meetupPlaceholderMeta,
 ) (string, string, string, string) {
 	ctx := placeholders.Context{
-		ClubName:      meta.ClubName,
-		LiveEventName: meta.LiveEventName,
-		Category:      meta.Category,
-		Title:         name,
-		Address:       address,
-		Latitude:      lat,
-		Longitude:     lng,
-		TimeZone:      s.resolveTimeZone(r, meta.TimeZone),
+		ClubName:         meta.ClubName,
+		LiveEventName:    meta.LiveEventName,
+		Category:         meta.Category,
+		Title:            name,
+		Address:          address,
+		Latitude:         lat,
+		Longitude:        lng,
+		TimeZone:         s.resolveTimeZone(r, meta.TimeZone),
+		Language:         meta.Language,
+		CategoryPatterns: eventcategory.All,
 	}
 	if t, ok := parseMeetupTime(eventTime); ok {
 		ctx.EventTime = t
@@ -86,4 +94,14 @@ func (s *Server) applyMeetupPlaceholders(
 		CoverPhotoURL: cover,
 	}, ctx, meta.PlaceholderValues)
 	return strings.TrimSpace(out.Name), out.Details, out.Address, out.CoverPhotoURL
+}
+
+func meetupTextOverLimit(name, details string) string {
+	if utf8.RuneCountInString(name) > maxMeetupTitleRunes {
+		return "title exceeds 120 characters after placeholders"
+	}
+	if utf8.RuneCountInString(details) > maxMeetupDetailsRunes {
+		return "description exceeds 1000 characters after placeholders"
+	}
+	return ""
 }

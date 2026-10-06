@@ -5,12 +5,14 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/topi314/campfire-event-manager/server/pokemon"
 )
 
-// Match {{key}} tokens. Keys: letters, digits, underscore, hyphen.
-var tokenRE = regexp.MustCompile(`\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*)\s*\}\}`)
+// Match {{key}} or {{key[1]}} tokens.
+var tokenRE = regexp.MustCompile(`\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*(?:\[[0-9]+\])?)\s*\}\}`)
 
-// BuiltinKeys lists documented built-in placeholder names (canonical casing).
+// BuiltinKeys lists documented built-in placeholder names (canonical casing, unindexed).
 var BuiltinKeys = []string{
 	"club",
 	"liveEvent",
@@ -25,6 +27,15 @@ var BuiltinKeys = []string{
 	"startTime",
 	"endTime",
 	"timezone",
+	"eventPokemon",
+	"eventPokemonCeilingResearch",
+	"eventPokemonCeilingRaid",
+	"eventPokemonCeilingEgg",
+	"eventPokemonCeilingRaidWeather",
+	"eventPokemonFloorResearch",
+	"eventPokemonFloorRaid",
+	"eventPokemonFloorEgg",
+	"eventPokemonFloorRaidWeather",
 }
 
 var builtinByNorm = func() map[string]string {
@@ -48,25 +59,42 @@ type Context struct {
 	EventEndTime  time.Time
 	HasEndTime    bool
 	TimeZone      string
+	// Language is the template language code (for eventPokemon translation + CP unit).
+	Language string
+	// CategoryPatterns maps category → phrases used to strip titles when extracting species.
+	CategoryPatterns map[string][]string
 }
 
-// NormalizeKey lowercases a placeholder key for comparison.
+// NormalizeKey lowercases a placeholder key for comparison (includes [i]).
 func NormalizeKey(key string) string {
 	return strings.ToLower(strings.TrimSpace(key))
+}
+
+// baseKey strips a trailing [digits] index for builtin identity checks.
+func baseKey(key string) string {
+	base, _, has := pokemon.SplitIndex(key)
+	if has {
+		return base
+	}
+	return strings.TrimSpace(key)
 }
 
 // CanonicalKey returns the documented spelling for built-ins; otherwise the trimmed key.
 func CanonicalKey(key string) string {
 	trimmed := strings.TrimSpace(key)
-	if c, ok := builtinByNorm[NormalizeKey(trimmed)]; ok {
+	base, idx, has := pokemon.SplitIndex(trimmed)
+	if c, ok := builtinByNorm[NormalizeKey(base)]; ok {
+		if has {
+			return fmt.Sprintf("%s[%d]", c, idx)
+		}
 		return c
 	}
 	return trimmed
 }
 
-// IsBuiltin reports whether key is a built-in placeholder (case-insensitive).
+// IsBuiltin reports whether key is a built-in placeholder (case-insensitive; index ignored).
 func IsBuiltin(key string) bool {
-	_, ok := builtinByNorm[NormalizeKey(key)]
+	_, ok := builtinByNorm[NormalizeKey(baseKey(key))]
 	return ok
 }
 
@@ -88,7 +116,8 @@ func Lookup(values map[string]string, key string) (string, bool) {
 }
 
 // Apply substitutes {{tokens}} in text using values (case-insensitive keys).
-// Unknown tokens are left unchanged.
+// Unknown tokens are left unchanged, except event-pokemon builtins (incl. OOB indexes)
+// which resolve to empty when missing.
 func Apply(text string, values map[string]string) string {
 	if text == "" || !strings.Contains(text, "{{") {
 		return text
@@ -98,8 +127,13 @@ func Apply(text string, values map[string]string) string {
 		if len(sub) < 2 {
 			return match
 		}
-		if v, ok := Lookup(values, sub[1]); ok {
+		key := sub[1]
+		if v, ok := Lookup(values, key); ok {
 			return v
+		}
+		base := baseKey(key)
+		if pokemon.IsEventPokemonBase(base) {
+			return ""
 		}
 		return match
 	})
@@ -139,6 +173,12 @@ func ResolveBuiltins(ctx Context) map[string]string {
 	if ctx.HasEndTime && !ctx.EventEndTime.IsZero() {
 		out["endTime"] = ctx.EventEndTime.In(loc).Format("15:04")
 	}
+
+	patterns := ctx.CategoryPatterns
+	ep := pokemon.ResolveEventPokemon(ctx.LiveEventName, ctx.Category, ctx.Language, patterns)
+	for k, v := range ep {
+		out[k] = v
+	}
 	return out
 }
 
@@ -154,7 +194,6 @@ func MergeValues(builtins map[string]string, custom map[string]string) map[strin
 		}
 		canon := CanonicalKey(k)
 		out[canon] = v
-		// Also keep original key so exact lookups work.
 		if canon != k {
 			out[k] = v
 		}

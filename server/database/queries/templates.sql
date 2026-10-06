@@ -72,9 +72,10 @@ INSERT INTO meetup_templates (
     template_payload,
     template_origin_id,
     template_synced,
+    template_language,
     template_created_at,
     template_updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING
     template_id,
     template_discord_user_id,
@@ -92,9 +93,10 @@ RETURNING
 UPDATE meetup_templates
 SET template_name = $1,
     template_payload = $2,
+    template_language = $3,
     template_synced = FALSE,
-    template_updated_at = $5
-WHERE template_id = $3 AND template_discord_user_id = $4
+    template_updated_at = $6
+WHERE template_id = $4 AND template_discord_user_id = $5
 RETURNING
     template_id,
     template_discord_user_id,

@@ -11,6 +11,13 @@ withDefaults(
 
 const open = ref(false);
 
+const coreBuiltins = computed(() =>
+  BUILTIN_PLACEHOLDERS.filter((b) => b.group !== "eventPokemon"),
+);
+const eventPokemonBuiltins = computed(() =>
+  BUILTIN_PLACEHOLDERS.filter((b) => b.group === "eventPokemon"),
+);
+
 function onKeydown(e: KeyboardEvent) {
   if (e.key === "Escape" && open.value) {
     open.value = false;
@@ -35,15 +42,14 @@ onBeforeUnmount(() => {
   <div class="placeholder-help">
     <p class="lede muted">
       Use <code v-pre>{{key}}</code> tokens in the meetup title and description.
-      Letter case does not matter (<code v-pre>{{liveEvent}}</code> and
-      <code v-pre>{{LiveEvent}}</code> are the same). Built-in keys are filled by the
-      server when you create or post; any other key becomes a field you fill in on the
-      create page.
+      Letter case does not matter. Built-ins fill on the server when you create or post
+      (and in Preview). Any other key becomes a required create-time field unless you set a
+      default.
     </p>
 
     <button type="button" class="open-btn" @click="open = true">
-      View built-in placeholders
-      <span class="count muted">({{ BUILTIN_PLACEHOLDERS.length }})</span>
+      View placeholder help
+      <span class="count muted">({{ BUILTIN_PLACEHOLDERS.length }} built-ins)</span>
     </button>
 
     <Teleport to="body">
@@ -60,11 +66,10 @@ onBeforeUnmount(() => {
         >
           <div class="popup-head">
             <div>
-              <h2 id="builtin-placeholders-title">Built-in placeholders</h2>
+              <h2 id="builtin-placeholders-title">Placeholders</h2>
               <p class="muted sub">
-                These fill automatically on the server when you create or post a meetup (and in
-                Preview). Sources include club, live event, meetup fields (title, address,
-                coordinates), date, and times.
+                Tokens look like <code v-pre>{{liveEvent}}</code>. Indexes use
+                <code v-pre>{{eventPokemon[1]}}</code> (1-based).
               </p>
             </div>
             <button type="button" class="icon-close" aria-label="Close" @click="open = false">
@@ -72,24 +77,65 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <ul class="builtin-list" :class="{ compact }">
-            <li v-for="b in BUILTIN_PLACEHOLDERS" :key="b.key">
-              <div class="keys">
-                <code v-text="'{{' + b.key + '}}'" />
-              </div>
-              <div class="meta">
-                <strong>{{ b.label }}</strong>
-                <span class="muted">{{ b.description }}</span>
-                <span v-if="!compact" class="example muted">e.g. {{ b.example }}</span>
-              </div>
-            </li>
-          </ul>
+          <div class="scroll">
+            <h3>How tokens work</h3>
+            <p class="muted section-p">
+              Put <code v-pre>{{key}}</code> in title, description, address, or cover URL.
+              Matching is case-insensitive. Unknown keys become fields on the create page —
+              required unless the template defines a default. Custom values override builtins
+              when the same key is sent.
+            </p>
 
-          <p v-if="!compact" class="hint muted">
-            Custom examples: <code v-pre>{{city}}</code>, <code v-pre>{{park}}</code>,
-            <code v-pre>{{meetupSpot}}</code>, <code v-pre>{{boss}}</code> — define a label/default
-            when they appear in your text.
-          </p>
+            <h3>Built-ins (auto)</h3>
+            <ul class="builtin-list" :class="{ compact }">
+              <li v-for="b in coreBuiltins" :key="b.key">
+                <div class="keys">
+                  <code v-text="'{{' + b.key + '}}'" />
+                </div>
+                <div class="meta">
+                  <strong>{{ b.label }}</strong>
+                  <span class="muted">{{ b.description }}</span>
+                  <span v-if="!compact" class="example muted">e.g. {{ b.example }}</span>
+                </div>
+              </li>
+            </ul>
+
+            <h3>Event Pokémon</h3>
+            <p class="muted section-p">
+              Extracted from the live event title for categories like Community Day, Raid Hour,
+              Spotlight Hour, Research/Hatch Day, Max Monday/Battle Day (not GO Fest/Tour/etc.).
+              Form prefixes (Mega, Shadow, Alolan, Galarian, …) are matched when present.
+              <code v-pre>{{eventPokemon}}</code> is translated to the template language and is
+              editable on create when used. Ceiling/Floor IV CP/WP keys are computed from that
+              species and are <strong>not</strong> editable. Units: EN <code>CP</code>, DE
+              <code>WP</code> (Wettkampfpunkte), FR/ES/IT <code>PC</code>.
+            </p>
+            <ul class="builtin-list" :class="{ compact }">
+              <li v-for="b in eventPokemonBuiltins" :key="b.key">
+                <div class="keys">
+                  <code v-text="'{{' + b.key + '}}'" />
+                </div>
+                <div class="meta">
+                  <strong>{{ b.label }}</strong>
+                  <span class="muted">{{ b.description }}</span>
+                  <span v-if="!compact" class="example muted">e.g. {{ b.example }}</span>
+                </div>
+              </li>
+            </ul>
+            <p class="muted section-p">
+              Indexes: <code v-pre>{{eventPokemon[1]}}</code>,
+              <code v-pre>{{eventPokemonCeilingRaid[2]}}</code> — first/second species only.
+              Unindexed forms are the full comma-joined list. Out of range → empty.
+            </p>
+
+            <h3>Custom placeholders</h3>
+            <p class="muted section-p">
+              Any other key (e.g. <code v-pre>{{city}}</code>, <code v-pre>{{park}}</code>,
+              <code v-pre>{{meetupSpot}}</code>) becomes a create-time field. Optionally set a
+              label and default in the template editor. Fields without a default are
+              <strong>required</strong> when posting a meetup (drafts may stay incomplete).
+            </p>
+          </div>
 
           <div class="modal-actions">
             <button type="button" class="primary" @click="open = false">Close</button>
@@ -110,8 +156,9 @@ onBeforeUnmount(() => {
   line-height: 1.45;
 }
 .lede code,
-.hint code,
-.keys code {
+.section-p code,
+.keys code,
+.sub code {
   font-size: 0.8em;
 }
 .open-btn {
@@ -138,8 +185,8 @@ onBeforeUnmount(() => {
   text-decoration: none;
 }
 .modal-placeholders {
-  width: min(560px, 100%);
-  max-height: min(85vh, 720px);
+  width: min(640px, 100%);
+  max-height: min(85vh, 780px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -167,15 +214,30 @@ onBeforeUnmount(() => {
   font-size: 1.35rem;
   line-height: 1;
 }
-.builtin-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.55rem;
+.scroll {
   overflow: auto;
   min-height: 0;
   flex: 1;
+  padding-right: 0.15rem;
+}
+.scroll h3 {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.95rem;
+}
+.scroll h3:first-child {
+  margin-top: 0;
+}
+.section-p {
+  margin: 0 0 0.55rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.builtin-list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
 }
 .builtin-list li {
   display: grid;
@@ -211,10 +273,6 @@ onBeforeUnmount(() => {
 }
 .example {
   font-size: 0.8rem;
-}
-.hint {
-  margin: 0.75rem 0 0;
-  font-size: 0.85rem;
 }
 .modal-actions {
   margin-top: 1rem;

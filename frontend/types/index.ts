@@ -15,7 +15,7 @@ export type MeetupTemplate = {
   payload: MeetupPayload;
   publishedAt?: string | null;
   publishDescription?: string | null;
-  /** ISO 639-1 language code when published (e.g. en, de). */
+  /** ISO 639-1 language code for the template (e.g. en, de). */
   language?: string | null;
   originTemplateId?: number | null;
   /** Clone still follows the origin until you edit it. */
@@ -138,6 +138,8 @@ export type CreateMeetupInput = {
   liveEventName?: string;
   category?: string;
   timeZone?: string;
+  /** Template language for eventPokemon translation / CP unit. */
+  language?: string;
   placeholderValues?: Record<string, string>;
 };
 
@@ -161,6 +163,7 @@ export type EditMeetupInput = {
   liveEventName?: string;
   category?: string;
   timeZone?: string;
+  language?: string;
   placeholderValues?: Record<string, string>;
 };
 

@@ -50,13 +50,17 @@ var ExtractableCategories = map[string]struct{}{
 var EventPokemonBaseKeys = []string{
 	"eventPokemon",
 	"eventPokemonCeilingResearch",
-	"eventPokemonCeilingRaid",
-	"eventPokemonCeilingEgg",
-	"eventPokemonCeilingRaidWeather",
 	"eventPokemonFloorResearch",
-	"eventPokemonFloorRaid",
+	"eventPokemonCeilingEgg",
 	"eventPokemonFloorEgg",
+	"eventPokemonCeilingRaid",
+	"eventPokemonFloorRaid",
+	"eventPokemonCeilingRaidWeather",
 	"eventPokemonFloorRaidWeather",
+	"eventPokemonFloorSuperMegaRaid",
+	"eventPokemonFloorSuperMegaRaidWeather",
+	"eventPokemonFloorShadowRaid",
+	"eventPokemonFloorShadowRaidWeather",
 }
 
 var (
@@ -440,6 +444,10 @@ func buildEventPokemonValues(species []*Species, displayNames []string, language
 	floorRaid := make([]string, n)
 	floorEgg := make([]string, n)
 	floorRaidWeather := make([]string, n)
+	floorSuperMegaRaid := make([]string, n)
+	floorSuperMegaRaidWeather := make([]string, n)
+	floorShadowRaid := make([]string, n)
+	floorShadowRaidWeather := make([]string, n)
 
 	for i := 0; i < n; i++ {
 		sp := species[i]
@@ -457,6 +465,10 @@ func buildEventPokemonValues(species []*Species, displayNames []string, language
 			floorRaid[i] = formatCP(CP(sp, 20, 10))
 			floorEgg[i] = formatCP(CP(sp, 20, 10))
 			floorRaidWeather[i] = formatCP(CP(sp, 25, 10))
+			floorSuperMegaRaid[i] = formatCP(CP(sp, 20, 11))
+			floorSuperMegaRaidWeather[i] = formatCP(CP(sp, 25, 11))
+			floorShadowRaid[i] = formatCP(CP(sp, 20, 6))
+			floorShadowRaidWeather[i] = formatCP(CP(sp, 25, 6))
 		}
 
 		idx := i + 1
@@ -469,6 +481,10 @@ func buildEventPokemonValues(species []*Species, displayNames []string, language
 		out[fmt.Sprintf("eventPokemonFloorRaid[%d]", idx)] = floorRaid[i]
 		out[fmt.Sprintf("eventPokemonFloorEgg[%d]", idx)] = floorEgg[i]
 		out[fmt.Sprintf("eventPokemonFloorRaidWeather[%d]", idx)] = floorRaidWeather[i]
+		out[fmt.Sprintf("eventPokemonFloorSuperMegaRaid[%d]", idx)] = floorSuperMegaRaid[i]
+		out[fmt.Sprintf("eventPokemonFloorSuperMegaRaidWeather[%d]", idx)] = floorSuperMegaRaidWeather[i]
+		out[fmt.Sprintf("eventPokemonFloorShadowRaid[%d]", idx)] = floorShadowRaid[i]
+		out[fmt.Sprintf("eventPokemonFloorShadowRaidWeather[%d]", idx)] = floorShadowRaidWeather[i]
 	}
 
 	join := func(parts []string) string { return strings.Join(parts, ", ") }
@@ -481,6 +497,10 @@ func buildEventPokemonValues(species []*Species, displayNames []string, language
 	out["eventPokemonFloorRaid"] = join(floorRaid)
 	out["eventPokemonFloorEgg"] = join(floorEgg)
 	out["eventPokemonFloorRaidWeather"] = join(floorRaidWeather)
+	out["eventPokemonFloorSuperMegaRaid"] = join(floorSuperMegaRaid)
+	out["eventPokemonFloorSuperMegaRaidWeather"] = join(floorSuperMegaRaidWeather)
+	out["eventPokemonFloorShadowRaid"] = join(floorShadowRaid)
+	out["eventPokemonFloorShadowRaidWeather"] = join(floorShadowRaidWeather)
 	return out
 }
 

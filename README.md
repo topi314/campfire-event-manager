@@ -181,8 +181,12 @@ Use `{{key}}` or `{{key[1]}}` in title, description, address, or cover URL. Buil
 **Event Pokémon** (category-gated extraction from the live event title; catalog + CP math on the server):
 
 - `{{eventPokemon}}` — species name(s) translated to the meetup language (defaults from the template; overridable on create); editable when used
-- `{{eventPokemonCeilingResearch|Raid|Egg|RaidWeather}}` — ceiling IV (15/15/15) at L15 / L20 / L20 / L25 (number only)
-- `{{eventPokemonFloorResearch|Raid|Egg|RaidWeather}}` — floor IV (10/10/10) at the same levels (number only)
+- Research: `{{eventPokemonCeilingResearch}}` / `{{eventPokemonFloorResearch}}` — 15/15/15 & 10/10/10 at L15
+- Egg: `{{eventPokemonCeilingEgg}}` / `{{eventPokemonFloorEgg}}` — 15/15/15 & 10/10/10 at L20
+- Raid: `{{eventPokemonCeilingRaid}}` / `{{eventPokemonFloorRaid}}` — 15/15/15 & 10/10/10 at L20
+- Raid weather: `{{eventPokemonCeilingRaidWeather}}` / `{{eventPokemonFloorRaidWeather}}` — same IVs at L25
+- Super mega raid: `{{eventPokemonFloorSuperMegaRaid}}` / `{{eventPokemonFloorSuperMegaRaidWeather}}` — 11/11/11 at L20 / L25
+- Shadow raid: `{{eventPokemonFloorShadowRaid}}` / `{{eventPokemonFloorShadowRaidWeather}}` — 6/6/6 at L20 / L25
 - Indexes: `{{eventPokemon[1]}}`, `{{eventPokemonCeilingRaid[2]}}`, … (1-based). Unindexed = full comma-joined list.
 
 Any other key becomes a create-time field (**required** unless you set a default in `placeholders`). Prefer `startTime` / `endTime` (`HH:mm`) as template clock fields; legacy `eventTime` / `eventEndTime` still work (time-of-day only).

@@ -29,6 +29,10 @@ func TestGogoatCPGoldens(t *testing.T) {
 		{25, 15, 1998},
 		{15, 10, 1142},
 		{20, 10, 1522},
+		{20, 11, 1537}, // super mega raid floor
+		{25, 11, 1922}, // weather-boosted super mega raid floor
+		{20, 6, 1463},  // shadow raid floor
+		{25, 6, 1829},  // weather-boosted shadow raid floor
 	}
 	for _, c := range cases {
 		if got := CP(sp, c.level, c.iv); got != c.want {
@@ -106,6 +110,24 @@ func TestResolveIndexedAndUnitDE(t *testing.T) {
 		if r < '0' || r > '9' {
 			t.Fatalf("raid[1]=%q want digits only", m["eventPokemonCeilingRaid[1]"])
 		}
+	}
+	if got := m["eventPokemonFloorSuperMegaRaid[1]"]; got == "" {
+		t.Fatalf("super mega floor[1] empty")
+	}
+	if got := m["eventPokemonFloorSuperMegaRaidWeather[1]"]; got == "" {
+		t.Fatalf("super mega weather floor[1] empty")
+	}
+	if got := m["eventPokemonFloorShadowRaid[1]"]; got == "" {
+		t.Fatalf("shadow floor[1] empty")
+	}
+	if got := m["eventPokemonFloorShadowRaidWeather[1]"]; got == "" {
+		t.Fatalf("shadow weather floor[1] empty")
+	}
+	if m["eventPokemonFloorSuperMegaRaid[1]"] == m["eventPokemonFloorRaid[1]"] {
+		t.Fatalf("super mega floor should differ from raid floor (11 vs 10 IV)")
+	}
+	if m["eventPokemonFloorShadowRaid[1]"] == m["eventPokemonFloorRaid[1]"] {
+		t.Fatalf("shadow floor should differ from raid floor (6 vs 10 IV)")
 	}
 }
 

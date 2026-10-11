@@ -29,13 +29,17 @@ var BuiltinKeys = []string{
 	"timezone",
 	"eventPokemon",
 	"eventPokemonCeilingResearch",
-	"eventPokemonCeilingRaid",
-	"eventPokemonCeilingEgg",
-	"eventPokemonCeilingRaidWeather",
 	"eventPokemonFloorResearch",
-	"eventPokemonFloorRaid",
+	"eventPokemonCeilingEgg",
 	"eventPokemonFloorEgg",
+	"eventPokemonCeilingRaid",
+	"eventPokemonFloorRaid",
+	"eventPokemonCeilingRaidWeather",
 	"eventPokemonFloorRaidWeather",
+	"eventPokemonFloorSuperMegaRaid",
+	"eventPokemonFloorSuperMegaRaidWeather",
+	"eventPokemonFloorShadowRaid",
+	"eventPokemonFloorShadowRaidWeather",
 }
 
 var builtinByNorm = func() map[string]string {

@@ -15,7 +15,13 @@ const {
   validateToken,
   clearCampfireProfile,
 } = useCampfireSession();
-const { timezonePromptOpen, maybePromptTimezone, closeTimezonePrompt } = usePreferences();
+const {
+  timezonePromptOpen,
+  languagePromptOpen,
+  maybePromptTimezone,
+  closeTimezonePrompt,
+  closeLanguagePrompt,
+} = usePreferences();
 
 onMounted(async () => {
   await refresh();
@@ -132,5 +138,6 @@ watch(token, async (t, prev) => {
       @close="closeSettings"
     />
     <TimezonePrompt :open="timezonePromptOpen" @close="closeTimezonePrompt" />
+    <LanguagePrompt :open="languagePromptOpen" @close="closeLanguagePrompt" />
   </div>
 </template>

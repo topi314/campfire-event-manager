@@ -9,12 +9,14 @@ import (
 )
 
 type resolvePlaceholdersBody struct {
-	LiveEventName string `json:"liveEventName"`
-	Category      string `json:"category"`
-	Language      string `json:"language"`
+	LiveEventName       string            `json:"liveEventName"`
+	Category            string            `json:"category"`
+	Language            string            `json:"language"`
+	EventPokemonValues  map[string]string `json:"eventPokemonValues"`
 }
 
 // resolvePlaceholders returns eventPokemon* builtin values for create-flow prefills/preview.
+// Optional eventPokemonValues (manual name fills) recompute dependent ceiling/floor keys.
 func (s *Server) resolvePlaceholders(w http.ResponseWriter, r *http.Request) {
 	var body resolvePlaceholdersBody
 	if err := decodeJSON(r, &body); err != nil {
@@ -31,6 +33,18 @@ func (s *Server) resolvePlaceholders(w http.ResponseWriter, r *http.Request) {
 		body.Language,
 		eventcategory.All,
 	)
+	if len(body.EventPokemonValues) > 0 {
+		for k, v := range body.EventPokemonValues {
+			if !pokemon.IsEventPokemonNameKey(k) {
+				continue
+			}
+			if strings.TrimSpace(v) == "" {
+				continue
+			}
+			values[k] = v
+		}
+		pokemon.EnrichFromNameOverrides(values, body.EventPokemonValues, body.Language)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"category": category,
 		"values":   values,

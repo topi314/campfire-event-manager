@@ -99,19 +99,62 @@ func TestResolveIndexedAndUnitDE(t *testing.T) {
 	if m["eventPokemon[3]"] != "" {
 		t.Fatalf("OOB should be empty, got %q", m["eventPokemon[3]"])
 	}
-	if got := m["eventPokemonCeilingRaid[1]"]; got == "" || got[len(got)-2:] != "WP" {
-		t.Fatalf("raid[1]=%q want … WP", got)
+	if got := m["eventPokemonCeilingRaid[1]"]; got == "" {
+		t.Fatalf("raid[1] empty")
+	}
+	for _, r := range m["eventPokemonCeilingRaid[1]"] {
+		if r < '0' || r > '9' {
+			t.Fatalf("raid[1]=%q want digits only", m["eventPokemonCeilingRaid[1]"])
+		}
 	}
 }
 
-func TestCombatUnit(t *testing.T) {
-	if CombatUnit("de") != "WP" {
-		t.Fatal(CombatUnit("de"))
+func TestMatchLocalizedName(t *testing.T) {
+	sp := MatchEnglish("Schiggy")
+	if sp == nil || sp.Name != "Squirtle" {
+		t.Fatalf("Schiggy → %+v", sp)
 	}
-	if CombatUnit("fr") != "PC" {
-		t.Fatal(CombatUnit("fr"))
+}
+
+func TestEnrichFromManualNames(t *testing.T) {
+	// Title extraction fails (non-extractable category), manual name still fills CP.
+	values := ResolveEventPokemon("GO Fest: Squirtle", "GO Fest", "en", eventcategory.All)
+	if values["eventPokemonCeilingRaid"] != "" {
+		t.Fatalf("expected empty auto resolve, got %q", values["eventPokemonCeilingRaid"])
 	}
-	if CombatUnit("en") != "CP" {
-		t.Fatal(CombatUnit("en"))
+	overrides := map[string]string{"eventPokemon": "Squirtle"}
+	values["eventPokemon"] = "Squirtle"
+	EnrichFromNameOverrides(values, overrides, "en")
+	if values["eventPokemon"] != "Squirtle" {
+		t.Fatalf("name=%q", values["eventPokemon"])
+	}
+	if got := values["eventPokemonCeilingRaid"]; got == "" {
+		t.Fatalf("ceiling raid empty")
+	}
+	for _, r := range values["eventPokemonCeilingRaid"] {
+		if r < '0' || r > '9' {
+			t.Fatalf("ceiling raid=%q want digits only", values["eventPokemonCeilingRaid"])
+		}
+	}
+	if values["eventPokemon[1]"] != "Squirtle" {
+		t.Fatalf("[1]=%q", values["eventPokemon[1]"])
+	}
+}
+
+func TestEnrichFromIndexedGermanName(t *testing.T) {
+	values := ResolveEventPokemon("", "Raid Hour", "de", eventcategory.All)
+	overrides := map[string]string{"eventPokemon[1]": "Schiggy"}
+	values["eventPokemon[1]"] = "Schiggy"
+	EnrichFromNameOverrides(values, overrides, "de")
+	if got := values["eventPokemonCeilingRaid[1]"]; got == "" {
+		t.Fatalf("raid[1] empty")
+	}
+	for _, r := range values["eventPokemonCeilingRaid[1]"] {
+		if r < '0' || r > '9' {
+			t.Fatalf("raid[1]=%q want digits only", values["eventPokemonCeilingRaid[1]"])
+		}
+	}
+	if values["eventPokemon[1]"] != "Schiggy" {
+		t.Fatalf("kept manual name=%q", values["eventPokemon[1]"])
 	}
 }

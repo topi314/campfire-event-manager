@@ -96,6 +96,9 @@ func load() {
 			for _, a := range sp.Aliases {
 				add(a)
 			}
+			for _, loc := range sp.Names {
+				add(loc)
+			}
 		}
 		sort.Slice(aliases, func(i, j int) bool {
 			if len(aliases[i].text) != len(aliases[j].text) {
@@ -151,18 +154,6 @@ func stripFormeWords(n string) string {
 	return strings.Join(out, " ")
 }
 
-// CombatUnit returns the localized CP abbreviation for a template language code.
-func CombatUnit(lang string) string {
-	switch strings.ToLower(strings.TrimSpace(lang)) {
-	case "de":
-		return "WP"
-	case "fr", "es", "it":
-		return "PC"
-	default:
-		return "CP"
-	}
-}
-
 // LocalizedName returns the species display name in lang (fallback en / Name).
 func LocalizedName(sp *Species, lang string) string {
 	if sp == nil {
@@ -208,8 +199,8 @@ func CP(sp *Species, level int, iv int) int {
 	return out
 }
 
-func formatCP(cp int, lang string) string {
-	return fmt.Sprintf("%d %s", cp, CombatUnit(lang))
+func formatCP(cp int) string {
+	return fmt.Sprintf("%d", cp)
 }
 
 // MatchEnglish looks up a single title segment against the catalog.
@@ -322,37 +313,151 @@ func ExtractSpecies(liveEventName, category string, categoryPatterns map[string]
 
 // ResolveEventPokemon builds eventPokemon* placeholder values (incl. [1..N] indexes).
 func ResolveEventPokemon(liveEventName, category, language string, categoryPatterns map[string][]string) map[string]string {
+	species := ExtractSpecies(liveEventName, category, categoryPatterns)
+	display := make([]string, len(species))
+	for i, sp := range species {
+		display[i] = LocalizedName(sp, language)
+	}
+	return buildEventPokemonValues(species, display, language)
+}
+
+// EnrichFromNameOverrides recomputes eventPokemon* CP placeholders from manually
+// provided eventPokemon / eventPokemon[i] names. Name keys already present in values
+// are left unchanged; derived indexes and all ceiling/floor keys are refreshed.
+// No-op when nameOverrides contains no eventPokemon name keys with values.
+func EnrichFromNameOverrides(values map[string]string, nameOverrides map[string]string, language string) {
+	if values == nil {
+		return
+	}
+	display := collectEventPokemonNames(nameOverrides)
+	if len(display) == 0 {
+		return
+	}
+	species := make([]*Species, len(display))
+	for i, name := range display {
+		species[i] = MatchEnglish(name)
+	}
+	built := buildEventPokemonValues(species, display, language)
+	for k, v := range built {
+		if IsEventPokemonNameKey(k) {
+			if lookupEventPokemonName(nameOverrides, k) != "" {
+				continue
+			}
+		}
+		values[k] = v
+	}
+}
+
+func lookupEventPokemonName(m map[string]string, key string) string {
+	if m == nil {
+		return ""
+	}
+	if v := strings.TrimSpace(m[key]); v != "" {
+		return v
+	}
+	want := strings.ToLower(strings.TrimSpace(key))
+	for k, v := range m {
+		if strings.ToLower(strings.TrimSpace(k)) == want {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// collectEventPokemonNames returns ordered display names from eventPokemon overrides.
+// Indexed keys win when any eventPokemon[i] is set; otherwise the unindexed list is split.
+func collectEventPokemonNames(overrides map[string]string) []string {
+	if overrides == nil {
+		return nil
+	}
+	byIdx := map[int]string{}
+	maxIdx := 0
+	unindexed := ""
+	for k, v := range overrides {
+		if !IsEventPokemonNameKey(k) {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		base, idx, has := SplitIndex(k)
+		_ = base
+		if has {
+			if idx < 1 {
+				continue
+			}
+			byIdx[idx] = v
+			if idx > maxIdx {
+				maxIdx = idx
+			}
+			continue
+		}
+		unindexed = v
+	}
+	if maxIdx > 0 {
+		out := make([]string, 0, maxIdx)
+		for i := 1; i <= maxIdx; i++ {
+			out = append(out, byIdx[i]) // empty string if a gap
+		}
+		return out
+	}
+	if unindexed == "" {
+		return nil
+	}
+	parts := strings.Split(unindexed, ", ")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func buildEventPokemonValues(species []*Species, displayNames []string, language string) map[string]string {
 	out := make(map[string]string, 32)
 	for _, k := range EventPokemonBaseKeys {
 		out[k] = ""
 	}
-
-	species := ExtractSpecies(liveEventName, category, categoryPatterns)
-	if len(species) == 0 {
+	n := len(species)
+	if len(displayNames) < n {
+		n = len(displayNames)
+	}
+	if n == 0 {
 		return out
 	}
 
 	lang := language
-	names := make([]string, len(species))
-	ceilingResearch := make([]string, len(species))
-	ceilingRaid := make([]string, len(species))
-	ceilingEgg := make([]string, len(species))
-	ceilingRaidWeather := make([]string, len(species))
-	floorResearch := make([]string, len(species))
-	floorRaid := make([]string, len(species))
-	floorEgg := make([]string, len(species))
-	floorRaidWeather := make([]string, len(species))
+	names := make([]string, n)
+	ceilingResearch := make([]string, n)
+	ceilingRaid := make([]string, n)
+	ceilingEgg := make([]string, n)
+	ceilingRaidWeather := make([]string, n)
+	floorResearch := make([]string, n)
+	floorRaid := make([]string, n)
+	floorEgg := make([]string, n)
+	floorRaidWeather := make([]string, n)
 
-	for i, sp := range species {
-		names[i] = LocalizedName(sp, lang)
-		ceilingResearch[i] = formatCP(CP(sp, 15, 15), lang)
-		ceilingRaid[i] = formatCP(CP(sp, 20, 15), lang)
-		ceilingEgg[i] = formatCP(CP(sp, 20, 15), lang)
-		ceilingRaidWeather[i] = formatCP(CP(sp, 25, 15), lang)
-		floorResearch[i] = formatCP(CP(sp, 15, 10), lang)
-		floorRaid[i] = formatCP(CP(sp, 20, 10), lang)
-		floorEgg[i] = formatCP(CP(sp, 20, 10), lang)
-		floorRaidWeather[i] = formatCP(CP(sp, 25, 10), lang)
+	for i := 0; i < n; i++ {
+		sp := species[i]
+		name := strings.TrimSpace(displayNames[i])
+		if name == "" && sp != nil {
+			name = LocalizedName(sp, lang)
+		}
+		names[i] = name
+		if sp != nil {
+			ceilingResearch[i] = formatCP(CP(sp, 15, 15))
+			ceilingRaid[i] = formatCP(CP(sp, 20, 15))
+			ceilingEgg[i] = formatCP(CP(sp, 20, 15))
+			ceilingRaidWeather[i] = formatCP(CP(sp, 25, 15))
+			floorResearch[i] = formatCP(CP(sp, 15, 10))
+			floorRaid[i] = formatCP(CP(sp, 20, 10))
+			floorEgg[i] = formatCP(CP(sp, 20, 10))
+			floorRaidWeather[i] = formatCP(CP(sp, 25, 10))
+		}
 
 		idx := i + 1
 		out[fmt.Sprintf("eventPokemon[%d]", idx)] = names[i]

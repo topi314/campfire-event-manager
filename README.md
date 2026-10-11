@@ -180,15 +180,14 @@ Use `{{key}}` or `{{key[1]}}` in title, description, address, or cover URL. Buil
 
 **Event Pokémon** (category-gated extraction from the live event title; catalog + CP math on the server):
 
-- `{{eventPokemon}}` — translated species name(s); editable on create when used
-- `{{eventPokemonCeilingResearch|Raid|Egg|RaidWeather}}` — ceiling IV (15/15/15) CP/WP at L15 / L20 / L20 / L25
-- `{{eventPokemonFloorResearch|Raid|Egg|RaidWeather}}` — floor IV (10/10/10) at the same levels
+- `{{eventPokemon}}` — species name(s) translated to the meetup language (defaults from the template; overridable on create); editable when used
+- `{{eventPokemonCeilingResearch|Raid|Egg|RaidWeather}}` — ceiling IV (15/15/15) at L15 / L20 / L20 / L25 (number only)
+- `{{eventPokemonFloorResearch|Raid|Egg|RaidWeather}}` — floor IV (10/10/10) at the same levels (number only)
 - Indexes: `{{eventPokemon[1]}}`, `{{eventPokemonCeilingRaid[2]}}`, … (1-based). Unindexed = full comma-joined list.
-- CP unit follows template language: `CP` (en), `WP` (de), `PC` (fr/es/it).
 
 Any other key becomes a create-time field (**required** unless you set a default in `placeholders`). Prefer `startTime` / `endTime` (`HH:mm`) as template clock fields; legacy `eventTime` / `eventEndTime` still work (time-of-day only).
 
-Template **language** is set when creating/editing a template (used for Browse filters and Pokémon name / WP unit). Publishing reuses the stored language.
+Template **language** is set when creating/editing a template (used for Browse filters and Pokémon name translation). Publishing reuses the stored language.
 
 After placeholders are applied, title must be ≤ **120 characters** and description ≤ **1000 characters** to post (drafts may exceed this).
 

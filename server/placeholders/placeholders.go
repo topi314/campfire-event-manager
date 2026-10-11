@@ -59,7 +59,7 @@ type Context struct {
 	EventEndTime  time.Time
 	HasEndTime    bool
 	TimeZone      string
-	// Language is the template language code (for eventPokemon translation + CP unit).
+	// Language is the template language code (for eventPokemon translation).
 	Language string
 	// CategoryPatterns maps category → phrases used to strip titles when extracting species.
 	CategoryPatterns map[string][]string
@@ -220,8 +220,10 @@ func ApplyToFields(fields TextFields, values map[string]string) TextFields {
 }
 
 // ResolveAndApply builds builtins from ctx, merges custom values, and applies to fields.
+// Manual eventPokemon name overrides recompute dependent ceiling/floor placeholders.
 func ResolveAndApply(fields TextFields, ctx Context, custom map[string]string) TextFields {
 	values := MergeValues(ResolveBuiltins(ctx), custom)
+	pokemon.EnrichFromNameOverrides(values, custom, ctx.Language)
 	return ApplyToFields(fields, values)
 }
 

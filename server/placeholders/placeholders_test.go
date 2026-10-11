@@ -99,11 +99,29 @@ func TestApplyIndexedEventPokemon(t *testing.T) {
 	if !strings.Contains(fields.Details, "Squirtle") {
 		t.Fatalf("details=%q", fields.Details)
 	}
-	if !strings.Contains(fields.Details, " CP") {
-		t.Fatalf("expected CP unit, got %q", fields.Details)
+	if strings.Contains(fields.Details, "CP") || strings.Contains(fields.Details, "WP") {
+		t.Fatalf("expected bare CP number, got %q", fields.Details)
 	}
 	// OOB index → empty (trailing slash space)
 	if strings.Contains(fields.Details, "{{") {
 		t.Fatalf("expected OOB emptied, got %q", fields.Details)
+	}
+}
+
+func TestApplyManualEventPokemonOverridesDependents(t *testing.T) {
+	ctx := Context{
+		LiveEventName:    "GO Fest Special",
+		Category:         "GO Fest",
+		Language:         "en",
+		CategoryPatterns: map[string][]string{"GO Fest": {"GO Fest"}},
+	}
+	fields := ResolveAndApply(TextFields{
+		Details: "{{eventPokemon}} / {{eventPokemonCeilingRaid}}",
+	}, ctx, map[string]string{"eventPokemon": "Gogoat"})
+	if !strings.Contains(fields.Details, "Gogoat") {
+		t.Fatalf("details=%q", fields.Details)
+	}
+	if !strings.Contains(fields.Details, "1598") {
+		t.Fatalf("expected Gogoat L20 ceiling, got %q", fields.Details)
 	}
 }

@@ -38,6 +38,11 @@ import {
 import { buildMeetupBodyFromDraft, parseDraftPayload } from "~/utils/drafts";
 import { fetchMeetupSchedule } from "~/utils/meetupSchedule";
 import { isCampfireTokenError } from "~/composables/useSessionToken";
+import {
+  TEMPLATE_LANGUAGES,
+  isTemplateLanguageCode,
+  type TemplateLanguageCode,
+} from "~/utils/languages";
 
 const props = defineProps<{
   /** When set, load this club draft into the create form. */
@@ -48,7 +53,7 @@ const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { token, authHeaders, openSettings, invalidateToken } = useSessionToken();
 const { me: campfireMe, validateToken } = useCampfireSession();
-const { timeZone, preferredClubId } = usePreferences();
+const { timeZone, preferredClubId, preferredLanguage } = usePreferences();
 const toast = useToast();
 
 type FlowMode = "create" | "edit";
@@ -78,6 +83,9 @@ const selectedTemplateId = ref<number | "">("");
 const selectedEventId = ref("");
 const originalCoverPhotoUrl = ref("");
 const placeholderValues = reactive<Record<string, string>>({});
+/** Language for eventPokemon translation; defaults from template / Settings, overridable on create. */
+const meetupLanguage = ref<TemplateLanguageCode>(preferredLanguage.value);
+const languageDirty = ref(false);
 
 const draft = reactive({
   name: "",
@@ -331,6 +339,7 @@ const MAX_MEETUP_DETAILS = 1000;
 const eventPokemonResolved = ref<Record<string, string>>({});
 const eventPokemonDirty = ref<Set<string>>(new Set());
 let resolveSeq = 0;
+let eventPokemonResolveTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Edit keeps {{tokens}} visible; preview shows resolved copy. */
 const textViewMode = ref<"edit" | "preview">("edit");
@@ -405,12 +414,63 @@ const postLengthBlocked = computed(
     resolvedDetailsLen.value > MAX_MEETUP_DETAILS,
 );
 
+function collectEventPokemonNameOverrides(): Record<string, string> {
+  const overrides: Record<string, string> = {};
+  for (const key of eventPokemonNameDefs.value) {
+    if (!eventPokemonDirty.value.has(normalizePlaceholderKey(key))) continue;
+    const raw = (placeholderValues[key] ?? "").trim();
+    if (raw) overrides[key] = raw;
+  }
+  return overrides;
+}
+
+function applyMeetupLanguage(code: string | null | undefined, opts?: { force?: boolean }) {
+  if (!opts?.force && languageDirty.value) return;
+  if (isTemplateLanguageCode(code || "")) {
+    meetupLanguage.value = code as TemplateLanguageCode;
+    return;
+  }
+  if (opts?.force || !meetupLanguage.value) {
+    meetupLanguage.value = preferredLanguage.value;
+  }
+}
+
+function onMeetupLanguageInput() {
+  languageDirty.value = true;
+  markDetailsTouched();
+}
+
+function onTitleInput(value: string) {
+  if (textViewMode.value === "preview") return;
+  draft.name = value;
+}
+
+function onDetailsInput(value: string) {
+  if (textViewMode.value === "preview") return;
+  draft.details = value;
+}
+
+function onAddressInput(e: Event) {
+  if (textViewMode.value === "preview") return;
+  draft.address = (e.target as HTMLInputElement).value;
+}
+
+/** Prefs/user load after setup — keep the select in sync until the user overrides it. */
+watch(
+  preferredLanguage,
+  () => {
+    if (languageDirty.value) return;
+    applyMeetupLanguage(selectedTemplate.value?.language, { force: true });
+  },
+);
+
 async function refreshEventPokemonResolve() {
   const liveName = selectedLiveEvent.value?.eventName || "";
   const category = liveEventCategory.value || rawPayload.value?.category || "";
-  const language = selectedTemplate.value?.language || "";
+  const language = meetupLanguage.value || "";
+  const nameOverrides = collectEventPokemonNameOverrides();
   const seq = ++resolveSeq;
-  if (!liveName && !category) {
+  if (!liveName && !category && !Object.keys(nameOverrides).length) {
     eventPokemonResolved.value = {};
     return;
   }
@@ -423,6 +483,9 @@ async function refreshEventPokemonResolve() {
           liveEventName: liveName,
           category,
           language,
+          ...(Object.keys(nameOverrides).length
+            ? { eventPokemonValues: nameOverrides }
+            : {}),
         }),
       },
     );
@@ -447,6 +510,11 @@ async function refreshEventPokemonResolve() {
 
 function onEventPokemonInput(key: string) {
   eventPokemonDirty.value.add(normalizePlaceholderKey(key));
+  if (eventPokemonResolveTimer != null) clearTimeout(eventPokemonResolveTimer);
+  eventPokemonResolveTimer = setTimeout(() => {
+    eventPokemonResolveTimer = null;
+    void refreshEventPokemonResolve();
+  }, 250);
 }
 
 function placeholderRequired(d: PlaceholderDef): boolean {
@@ -490,7 +558,7 @@ watch(
     [
       selectedLiveEvent.value?.eventName || "",
       liveEventCategory.value,
-      selectedTemplate.value?.language || "",
+      meetupLanguage.value,
       selectedTemplateId.value,
     ] as const,
   () => {
@@ -672,6 +740,12 @@ function autoSelectTemplate(force = false) {
     }
   }
   selectedTemplateId.value = next;
+  if (!languageDirty.value) {
+    const tpl = next
+      ? templates.value.find((t) => t.id === next)
+      : null;
+    applyMeetupLanguage(tpl?.language, { force: true });
+  }
 }
 
 /** Apply selected template onto the meetup being edited (keeps its calendar day). */
@@ -733,10 +807,12 @@ watch(selectedLiveEventId, () => {
   // Until the user edits, keep template in sync with the live event category.
   if (!detailsTouched.value) {
     beginProgrammaticUpdate();
+    languageDirty.value = false;
     if (selectedLiveEvent.value) {
       autoSelectTemplate(true);
     } else {
       selectedTemplateId.value = "";
+      applyMeetupLanguage(undefined, { force: true });
     }
     // Re-apply even when the template id is unchanged (new event times / name).
     void hydrateDraft().finally(() => endProgrammaticUpdate());
@@ -753,6 +829,8 @@ watch(selectedTemplateId, (id) => {
   if (programmaticUpdate) return;
   markDetailsTouched();
   resetPlaceholders();
+  languageDirty.value = false;
+  applyMeetupLanguage(selectedTemplate.value?.language, { force: true });
   textViewMode.value = "edit";
   if (mode.value === "edit") {
     if (id && selectedEventId.value && draftReady.value) {
@@ -1064,7 +1142,7 @@ function buildEditBody(): EditMeetupInput {
     liveEventName: selectedLiveEvent.value?.eventName || undefined,
     category: liveEventCategory.value || rawPayload.value?.category || undefined,
     timeZone: timeZone.value,
-    language: selectedTemplate.value?.language || undefined,
+    language: meetupLanguage.value || undefined,
     ...(Object.keys(customValues).length ? { placeholderValues: customValues } : {}),
   };
 }
@@ -1091,6 +1169,7 @@ function buildDraftPayload(): DraftMeetupPayload {
     createdByCommunityAmbassador: draft.createdByCommunityAmbassador,
     locationJitterMeters: draft.locationJitterMeters,
     location: { ...draftLocation.value! },
+    language: meetupLanguage.value || undefined,
     ...(Object.keys(customValues).length ? { placeholderValues: customValues } : {}),
   };
 }
@@ -1098,6 +1177,7 @@ function buildDraftPayload(): DraftMeetupPayload {
 
 function resetFormAfterDraft() {
   detailsTouched.value = false;
+  languageDirty.value = false;
   beginProgrammaticUpdate();
   selectedLiveEventId.value = "";
   selectedTemplateId.value = "";
@@ -1155,6 +1235,13 @@ function loadDraftFromPayload(p: DraftMeetupPayload) {
   if (p.clubId) selectedClubId.value = p.clubId;
   selectedLiveEventId.value = p.liveEventId || "";
   selectedTemplateId.value = resolveDraftTemplateId(p);
+  languageDirty.value = false;
+  if (isTemplateLanguageCode(p.language || "")) {
+    meetupLanguage.value = p.language as TemplateLanguageCode;
+    languageDirty.value = true;
+  } else {
+    applyMeetupLanguage(selectedTemplate.value?.language, { force: true });
+  }
   for (const k of Object.keys(placeholderValues)) delete placeholderValues[k];
   eventPokemonDirty.value = new Set();
   for (const d of placeholderDefs.value) {
@@ -1286,7 +1373,7 @@ async function createMeetup() {
     const body = buildMeetupBodyFromDraft(
       buildDraftPayload(),
       timeZone.value,
-      selectedTemplate.value?.language || undefined,
+      meetupLanguage.value || undefined,
     );
     const event = await api<{ id: string; name: string }>("/api/campfire/meetups", {
       method: "POST",
@@ -1485,22 +1572,33 @@ function templateOptionLabel(t: MeetupTemplate) {
           </select>
         </div>
 
-        <div class="field">
-          <label for="tpl">Template</label>
-          <select
-            id="tpl"
-            v-model="selectedTemplateId"
-            :disabled="mode === 'edit' && !selectedEventId"
-          >
-            <option value="">{{ mode === "edit" ? "Keep current details" : "No template" }}</option>
-            <option v-for="t in filteredTemplates" :key="t.id" :value="t.id">
-              {{ templateOptionLabel(t) }}
-            </option>
-          </select>
-          <p v-if="!templates.length" class="field-hint muted">
-            No templates —
-            <NuxtLink to="/templates">create one</NuxtLink>
-          </p>
+        <div class="field setup-template-lang">
+          <div class="field setup-template">
+            <label for="tpl">Template</label>
+            <select
+              id="tpl"
+              v-model="selectedTemplateId"
+              :disabled="mode === 'edit' && !selectedEventId"
+            >
+              <option value="">{{ mode === "edit" ? "Keep current details" : "No template" }}</option>
+              <option v-for="t in filteredTemplates" :key="t.id" :value="t.id">
+                {{ templateOptionLabel(t) }}
+              </option>
+            </select>
+          </div>
+          <div class="field setup-language">
+            <label for="meetup-language">Language</label>
+            <select
+              id="meetup-language"
+              v-model="meetupLanguage"
+              title="Pokémon name translation; defaults from template or Settings"
+              @change="onMeetupLanguageInput"
+            >
+              <option v-for="l in TEMPLATE_LANGUAGES" :key="l.code" :value="l.code">
+                {{ l.label }}
+              </option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -1531,7 +1629,7 @@ function templateOptionLabel(t: MeetupTemplate) {
           </template>
           <template v-if="placeholderDefs.length">
             <p class="hint muted" style="grid-column: 1 / -1; margin: 0">
-              Custom fields for this template:
+              Custom fields:
             </p>
             <div v-for="d in placeholderDefs" :key="d.key" class="field ph-item">
               <label :for="`ph-${d.key}`">
@@ -1558,10 +1656,9 @@ function templateOptionLabel(t: MeetupTemplate) {
           <div class="details-head">
             <h3>Meetup details</h3>
             <div
-              v-if="selectedTemplate"
               class="mode-toggle text-view-toggle"
               role="tablist"
-              aria-label="Template text view"
+              aria-label="Meetup text view"
             >
               <button
                 type="button"
@@ -1583,10 +1680,6 @@ function templateOptionLabel(t: MeetupTemplate) {
               </button>
             </div>
           </div>
-          <p v-if="selectedTemplate && textViewMode === 'edit'" class="hint muted">
-            Placeholders like <code v-pre>{{liveEvent}}</code> stay visible here and in saved
-            drafts. Preview shows filled values; the server resolves them when posting to Campfire.
-          </p>
 
           <div class="field">
             <label for="name">
@@ -1599,18 +1692,11 @@ function templateOptionLabel(t: MeetupTemplate) {
               </span>
             </label>
             <PlaceholderTextField
-              v-if="textViewMode === 'edit' || !selectedTemplate"
               id="name"
-              v-model="draft.name"
-              required
-            />
-            <input
-              v-else
-              id="name-preview"
-              type="text"
-              :value="previewText.name"
-              readonly
-              class="preview-field"
+              :model-value="textViewMode === 'edit' ? draft.name : previewText.name"
+              :required="textViewMode === 'edit'"
+              :readonly="textViewMode === 'preview'"
+              @update:model-value="onTitleInput"
             />
           </div>
 
@@ -1625,19 +1711,12 @@ function templateOptionLabel(t: MeetupTemplate) {
               </span>
             </label>
             <PlaceholderTextField
-              v-if="textViewMode === 'edit' || !selectedTemplate"
               id="details"
-              v-model="draft.details"
+              :model-value="textViewMode === 'edit' ? draft.details : previewText.details"
               multiline
               :rows="10"
-            />
-            <textarea
-              v-else
-              id="details-preview"
-              :value="previewText.details"
-              rows="10"
-              readonly
-              class="preview-field"
+              :readonly="textViewMode === 'preview'"
+              @update:model-value="onDetailsInput"
             />
             <PlaceholderHelp compact />
             <p v-if="postLengthBlocked" class="error" style="margin-top: 0.35rem">
@@ -1734,20 +1813,13 @@ function templateOptionLabel(t: MeetupTemplate) {
             <div class="field" style="margin-top: 0.75rem; margin-bottom: 0">
               <label for="address">Address</label>
               <input
-                v-if="textViewMode === 'edit' || !selectedTemplate"
                 id="address"
-                v-model="draft.address"
+                :value="textViewMode === 'edit' ? draft.address : previewText.address"
                 type="text"
+                :readonly="textViewMode === 'preview'"
+                :class="{ 'preview-field': textViewMode === 'preview' }"
                 placeholder="Optional — filled from place search"
-              />
-              <input
-                v-else
-                id="address-preview"
-                type="text"
-                :value="previewText.address"
-                readonly
-                class="preview-field"
-                placeholder="Optional"
+                @input="onAddressInput"
               />
               <p class="hint muted">Shown on the meetup; place search fills this when you pick a result.</p>
             </div>
@@ -1897,7 +1969,6 @@ function templateOptionLabel(t: MeetupTemplate) {
   flex: 0 0 auto;
 }
 .preview-field {
-  opacity: 0.92;
   cursor: default;
   background: color-mix(in srgb, var(--panel) 70%, transparent);
 }
@@ -1910,6 +1981,15 @@ function templateOptionLabel(t: MeetupTemplate) {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem 1rem;
   margin-bottom: 0.35rem;
+}
+.setup-template-lang {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(7.5rem, 0.85fr);
+  gap: 0.75rem 0.65rem;
+  margin-bottom: 0 !important;
+}
+.setup-template-lang > .field {
+  margin-bottom: 0 !important;
 }
 .field-hint {
   margin: 0.25rem 0 0;
@@ -2013,6 +2093,9 @@ function templateOptionLabel(t: MeetupTemplate) {
 }
 @media (max-width: 900px) {
   .setup-grid {
+    grid-template-columns: 1fr;
+  }
+  .setup-template-lang {
     grid-template-columns: 1fr;
   }
   .editor {

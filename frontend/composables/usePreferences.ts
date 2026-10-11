@@ -1,3 +1,9 @@
+import {
+  guessTemplateLanguage,
+  isTemplateLanguageCode,
+  type TemplateLanguageCode,
+} from "~/utils/languages";
+
 const PREFS_KEY = "campfire-event-manager.preferences";
 
 type StoredPrefs = {
@@ -6,6 +12,8 @@ type StoredPrefs = {
   byUser?: Record<string, string>;
   /** Discord user id → preferred Campfire club id for create/edit auto-select. */
   preferredClubByUser?: Record<string, string>;
+  /** Discord user id → default meetup/template language (ISO 639-1). */
+  preferredLanguageByUser?: Record<string, string>;
   /** Discord user id → whether Bug Hexe easter egg is enabled (default true). */
   bugHexeEnabledByUser?: Record<string, boolean>;
 };
@@ -41,12 +49,14 @@ function normalizeStored(raw: unknown): StoredPrefs {
   const parsed = raw as StoredPrefs;
   const byUser = normalizeStringMap(parsed.byUser);
   const preferredClubByUser = normalizeStringMap(parsed.preferredClubByUser);
+  const preferredLanguageByUser = normalizeStringMap(parsed.preferredLanguageByUser);
   const bugHexeEnabledByUser = normalizeBoolMap(parsed.bugHexeEnabledByUser);
   const legacy = typeof parsed.timeZone === "string" ? parsed.timeZone.trim() : "";
   return {
     timeZone: legacy || undefined,
     byUser,
     preferredClubByUser,
+    preferredLanguageByUser,
     bugHexeEnabledByUser,
   };
 }
@@ -89,6 +99,7 @@ export function listTimeZones(): string[] {
 export function usePreferences() {
   const stored = useState<StoredPrefs>("userPreferences", () => readStored());
   const timezonePromptOpen = useState("timezonePromptOpen", () => false);
+  const languagePromptOpen = useState("languagePromptOpen", () => false);
   const { user } = useAuth();
   const { api } = useApi();
 
@@ -97,7 +108,10 @@ export function usePreferences() {
   });
 
   watch(user, (current) => {
-    if (!current) timezonePromptOpen.value = false;
+    if (!current) {
+      timezonePromptOpen.value = false;
+      languagePromptOpen.value = false;
+    }
   });
 
   const timeZone = computed(() => {
@@ -123,6 +137,10 @@ export function usePreferences() {
       byUser: partial.byUser ?? { ...(stored.value.byUser || {}) },
       preferredClubByUser:
         partial.preferredClubByUser ?? { ...(stored.value.preferredClubByUser || {}) },
+      preferredLanguageByUser:
+        partial.preferredLanguageByUser ?? {
+          ...(stored.value.preferredLanguageByUser || {}),
+        },
       bugHexeEnabledByUser:
         partial.bugHexeEnabledByUser ?? { ...(stored.value.bugHexeEnabledByUser || {}) },
     };
@@ -159,6 +177,35 @@ export function usePreferences() {
     const next = snapshot({ preferredClubByUser: nextMap });
     stored.value = next;
     writeStored(next);
+  }
+
+  /** Saved default language, or browser guess when unset. */
+  const preferredLanguage = computed<TemplateLanguageCode>(() => {
+    const id = user.value?.id;
+    if (id) {
+      const saved = stored.value.preferredLanguageByUser?.[id] || "";
+      if (isTemplateLanguageCode(saved)) return saved;
+    }
+    return guessTemplateLanguage();
+  });
+
+  const hasLanguagePreference = computed(() => {
+    const id = user.value?.id;
+    if (!id) return false;
+    return isTemplateLanguageCode(stored.value.preferredLanguageByUser?.[id] || "");
+  });
+
+  function setPreferredLanguage(code: string) {
+    const id = user.value?.id;
+    if (!id) return;
+    const nextMap = { ...(stored.value.preferredLanguageByUser || {}) };
+    const resolved = isTemplateLanguageCode(code) ? code : "";
+    if (resolved) nextMap[id] = resolved;
+    else delete nextMap[id];
+    const next = snapshot({ preferredLanguageByUser: nextMap });
+    stored.value = next;
+    writeStored(next);
+    languagePromptOpen.value = false;
   }
 
   const bugHexeEnabled = computed(() => {
@@ -216,6 +263,7 @@ export function usePreferences() {
     void persistTimeZone(tz).catch(() => {
       /* Retried the next time this account loads. */
     });
+    maybePromptLanguage();
   }
 
   /**
@@ -231,6 +279,7 @@ export function usePreferences() {
     if (accountTz) {
       remember(current.id, accountTz);
       timezonePromptOpen.value = false;
+      maybePromptLanguage();
       return;
     }
 
@@ -238,6 +287,7 @@ export function usePreferences() {
     if (local) {
       timezonePromptOpen.value = false;
       void persistTimeZone(local).catch(() => {});
+      maybePromptLanguage();
       return;
     }
 
@@ -247,9 +297,11 @@ export function usePreferences() {
       clearLegacy();
       timezonePromptOpen.value = false;
       void persistTimeZone(legacy).catch(() => {});
+      maybePromptLanguage();
       return;
     }
 
+    languagePromptOpen.value = false;
     timezonePromptOpen.value = true;
   }
 
@@ -258,6 +310,28 @@ export function usePreferences() {
       setTimeZone(browserTimeZone());
     } else {
       timezonePromptOpen.value = false;
+      maybePromptLanguage();
+    }
+  }
+
+  /** Prompt when this account has never saved a default language. */
+  function maybePromptLanguage() {
+    if (!import.meta.client) return;
+    const current = user.value;
+    if (!current?.id) return;
+    if (timezonePromptOpen.value) return;
+    if (hasLanguagePreference.value) {
+      languagePromptOpen.value = false;
+      return;
+    }
+    languagePromptOpen.value = true;
+  }
+
+  function closeLanguagePrompt() {
+    if (!hasLanguagePreference.value) {
+      setPreferredLanguage(guessTemplateLanguage());
+    } else {
+      languagePromptOpen.value = false;
     }
   }
 
@@ -269,10 +343,16 @@ export function usePreferences() {
     setTimeZone,
     preferredClubId,
     setPreferredClubId,
+    preferredLanguage,
+    hasLanguagePreference,
+    setPreferredLanguage,
+    languagePromptOpen,
     bugHexeEnabled,
     setBugHexeEnabled,
     maybePromptTimezone,
     closeTimezonePrompt,
+    maybePromptLanguage,
+    closeLanguagePrompt,
     browserTimeZone,
     listTimeZones,
   };

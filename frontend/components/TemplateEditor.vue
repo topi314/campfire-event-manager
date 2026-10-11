@@ -22,7 +22,6 @@ import {
 } from "~/utils/eventCategory";
 import {
   TEMPLATE_LANGUAGES,
-  guessTemplateLanguage,
   isTemplateLanguageCode,
   type TemplateLanguageCode,
 } from "~/utils/languages";
@@ -49,11 +48,13 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
+const { preferredLanguage } = usePreferences();
+
 const name = ref(props.templateName);
 const language = ref<TemplateLanguageCode>(
   isTemplateLanguageCode(props.templateLanguage || "")
     ? (props.templateLanguage as TemplateLanguageCode)
-    : guessTemplateLanguage(),
+    : preferredLanguage.value,
 );
 const form = reactive({
   title: "",
@@ -130,7 +131,7 @@ function loadFromProps() {
   name.value = props.templateName || "";
   language.value = isTemplateLanguageCode(props.templateLanguage || "")
     ? (props.templateLanguage as TemplateLanguageCode)
-    : guessTemplateLanguage();
+    : preferredLanguage.value;
   const p = props.modelValue;
   if (!p) {
     form.title = "";
@@ -244,10 +245,6 @@ function onSubmit() {
 
 <template>
   <form class="template-editor" @submit.prevent="onSubmit">
-    <p class="muted steps-hint">
-      Set a category → fill meetup details → save the template for later use
-    </p>
-
     <div class="setup-grid">
       <div class="field">
         <label for="tpl-name">Template name</label>
@@ -255,17 +252,7 @@ function onSubmit() {
       </div>
 
       <div class="field">
-        <label for="tpl-language">Language</label>
-        <select id="tpl-language" v-model="language" required>
-          <option v-for="l in TEMPLATE_LANGUAGES" :key="l.code" :value="l.code">
-            {{ l.label }}
-          </option>
-        </select>
-        <p class="hint muted">Used for Browse listings and Pokémon name / CP unit (CP/WP/PC).</p>
-      </div>
-
-      <div class="field">
-        <label for="tpl-category">Live event category (optional)</label>
+        <label for="tpl-category">Live event category</label>
         <select
           id="tpl-category"
           :value="categorySelectValue"
@@ -287,6 +274,15 @@ function onSubmit() {
           style="margin-top: 0.45rem"
           aria-label="Custom live event category"
         />
+      </div>
+
+      <div class="field">
+        <label for="tpl-language">Language</label>
+        <select id="tpl-language" v-model="language" required>
+          <option v-for="l in TEMPLATE_LANGUAGES" :key="l.code" :value="l.code">
+            {{ l.label }}
+          </option>
+        </select>
       </div>
     </div>
 
@@ -475,10 +471,6 @@ function onSubmit() {
 .template-editor :deep(select) {
   padding: 0.45rem 0.6rem;
 }
-.steps-hint {
-  margin: 0 0 0.85rem;
-  font-size: 0.85rem;
-}
 .details-head {
   display: flex;
   flex-wrap: wrap;
@@ -493,7 +485,7 @@ function onSubmit() {
 }
 .setup-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.1fr) minmax(7.5rem, 0.75fr);
   gap: 0.75rem 1rem;
   margin-bottom: 0.35rem;
 }

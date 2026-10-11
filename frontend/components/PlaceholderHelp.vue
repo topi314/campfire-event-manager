@@ -105,10 +105,10 @@ onBeforeUnmount(() => {
               Extracted from the live event title for categories like Community Day, Raid Hour,
               Spotlight Hour, Research/Hatch Day, Max Monday/Battle Day (not GO Fest/Tour/etc.).
               Form prefixes (Mega, Shadow, Alolan, Galarian, …) are matched when present.
-              <code v-pre>{{eventPokemon}}</code> is translated to the template language and is
-              editable on create when used. Ceiling/Floor IV CP/WP keys are computed from that
-              species and are <strong>not</strong> editable. Units: EN <code>CP</code>, DE
-              <code>WP</code> (Wettkampfpunkte), FR/ES/IT <code>PC</code>.
+              <code v-pre>{{eventPokemon}}</code> is translated to the meetup language
+              (defaults from the template; overridable on create) and is editable when used.
+              Ceiling/Floor IV keys are computed from that species and are
+              <strong>not</strong> editable (bare numbers, no CP/WP unit).
             </p>
             <ul class="builtin-list" :class="{ compact }">
               <li v-for="b in eventPokemonBuiltins" :key="b.key">

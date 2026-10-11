@@ -138,7 +138,7 @@ export type CreateMeetupInput = {
   liveEventName?: string;
   category?: string;
   timeZone?: string;
-  /** Template language for eventPokemon translation / CP unit. */
+  /** Language for eventPokemon translation (create-time override or template default). */
   language?: string;
   placeholderValues?: Record<string, string>;
 };
@@ -163,6 +163,7 @@ export type EditMeetupInput = {
   liveEventName?: string;
   category?: string;
   timeZone?: string;
+  /** Language for eventPokemon translation (create-time override or template default). */
   language?: string;
   placeholderValues?: Record<string, string>;
 };
@@ -209,6 +210,8 @@ export type DraftMeetupPayload = {
   createdByCommunityAmbassador: boolean;
   locationJitterMeters: number;
   location: { lat: number; lng: number };
+  /** Language used for eventPokemon translation when this draft was saved. */
+  language?: string;
   /**
    * Custom placeholder fills collected on create. Applied only when posting;
    * title/details/address keep {{tokens}} until then.

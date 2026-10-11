@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import type { Club } from "~/types";
+import {
+  TEMPLATE_LANGUAGES,
+  guessTemplateLanguage,
+  isTemplateLanguageCode,
+  type TemplateLanguageCode,
+} from "~/utils/languages";
 
 const props = defineProps<{
   open: boolean;
@@ -20,6 +26,8 @@ const {
   browserTimeZone,
   preferredClubId,
   setPreferredClubId,
+  preferredLanguage,
+  setPreferredLanguage,
   bugHexeEnabled,
   setBugHexeEnabled,
 } = usePreferences();
@@ -31,6 +39,7 @@ const toast = useToast();
 const draftToken = ref("");
 const draftTz = ref("");
 const draftClubId = ref("");
+const draftLanguage = ref<TemplateLanguageCode>(guessTemplateLanguage());
 const draftBugHexe = ref(true);
 const showBugHexeSetting = computed(
   () => !!user.value && bugHexeUserIds.value.includes(user.value.id),
@@ -72,6 +81,7 @@ watch(
       token.value,
       timeZone.value,
       preferredClubId.value,
+      preferredLanguage.value,
       bugHexeEnabled.value,
     ] as const,
   ([open], prev) => {
@@ -80,6 +90,7 @@ watch(
     draftToken.value = token.value;
     draftTz.value = timeZone.value;
     draftClubId.value = preferredClubId.value;
+    draftLanguage.value = preferredLanguage.value;
     draftBugHexe.value = bugHexeEnabled.value;
     zones.value = listTimeZones();
     if (!zones.value.includes(draftTz.value)) {
@@ -99,6 +110,11 @@ watch(
 async function onSave() {
   setTimeZone(draftTz.value || browserTimeZone());
   setPreferredClubId(draftClubId.value);
+  setPreferredLanguage(
+    isTemplateLanguageCode(draftLanguage.value)
+      ? draftLanguage.value
+      : guessTemplateLanguage(),
+  );
   if (showBugHexeSetting.value) setBugHexeEnabled(draftBugHexe.value);
   saveError.value = "";
   const nextToken = draftToken.value.trim();
@@ -179,6 +195,25 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           </select>
         </div>
         <p class="hint muted">Detected browser zone: {{ browserTimeZone() }}</p>
+      </div>
+
+      <div class="settings-section">
+        <h3>Default language</h3>
+        <p class="muted">
+          Used for Pokémon name translation on create when a template has no language, and as
+          the starting choice before you pick a template.
+        </p>
+        <div class="field" style="margin-bottom: 0">
+          <label for="settings-language">Language</label>
+          <select id="settings-language" v-model="draftLanguage">
+            <option v-for="l in TEMPLATE_LANGUAGES" :key="l.code" :value="l.code">
+              {{ l.label }}
+            </option>
+          </select>
+        </div>
+        <p class="hint muted">
+          Detected browser language: {{ guessTemplateLanguage().toUpperCase() }}
+        </p>
       </div>
 
       <div class="settings-section">

@@ -10,12 +10,14 @@ const props = withDefaults(
     required?: boolean;
     placeholder?: string;
     disabled?: boolean;
+    readonly?: boolean;
   }>(),
   {
     multiline: false,
     rows: 3,
     required: false,
     disabled: false,
+    readonly: false,
   },
 );
 
@@ -70,7 +72,7 @@ function syncScroll() {
 </script>
 
 <template>
-  <div class="ph-field" :class="{ multiline }">
+  <div class="ph-field" :class="{ multiline, 'is-preview': readonly }">
     <div
       ref="mirrorRef"
       class="ph-mirror"
@@ -87,6 +89,7 @@ function syncScroll() {
       :required="required"
       :placeholder="placeholder"
       :disabled="disabled"
+      :readonly="readonly"
       spellcheck="false"
       @input="onInput"
       @scroll="syncScroll"
@@ -101,6 +104,7 @@ function syncScroll() {
       :required="required"
       :placeholder="placeholder"
       :disabled="disabled"
+      :readonly="readonly"
       spellcheck="false"
       @input="onInput"
       @scroll="syncScroll"
@@ -112,6 +116,12 @@ function syncScroll() {
 .ph-field {
   position: relative;
   width: 100%;
+}
+.ph-field.is-preview .ph-mirror {
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+.ph-field.is-preview .ph-input {
+  caret-color: transparent;
 }
 .ph-field.multiline {
   display: flex;

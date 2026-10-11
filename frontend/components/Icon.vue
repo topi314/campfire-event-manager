@@ -6,6 +6,7 @@ export type IconName =
   | "publish"
   | "unpublish"
   | "export"
+  | "import"
   | "add"
   | "plus"
   | "search"
@@ -69,53 +70,53 @@ defineProps<{
       />
     </template>
 
-    <!-- Publish / share up -->
+    <!-- Publish / make public (globe) -->
     <template v-else-if="name === 'publish'">
+      <circle cx="12" cy="12" r="8.25" stroke="currentColor" stroke-width="1.75" />
       <path
-        d="M12 16V5"
+        d="M12 3.75v16.5"
         stroke="currentColor"
         stroke-width="1.75"
         stroke-linecap="round"
       />
       <path
-        d="m8 8.5 4-3.5 4 3.5"
+        d="M3.75 12h16.5"
         stroke="currentColor"
         stroke-width="1.75"
         stroke-linecap="round"
-        stroke-linejoin="round"
       />
       <path
-        d="M5 15v2.5A1.5 1.5 0 0 0 6.5 19h11a1.5 1.5 0 0 0 1.5-1.5V15"
+        d="M5.8 7.5c1.8 1.2 3.9 1.85 6.2 1.85s4.4-.65 6.2-1.85"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+      />
+      <path
+        d="M5.8 16.5c1.8-1.2 3.9-1.85 6.2-1.85s4.4.65 6.2 1.85"
         stroke="currentColor"
         stroke-width="1.75"
         stroke-linecap="round"
       />
     </template>
 
-    <!-- Unpublish / eye off-ish down -->
+    <!-- Unpublish / hide from browse (eye off) -->
     <template v-else-if="name === 'unpublish'">
       <path
-        d="M12 8v11"
+        d="M3.5 12s3.2-5.5 8.5-5.5S20.5 12 20.5 12s-3.2 5.5-8.5 5.5S3.5 12 3.5 12Z"
         stroke="currentColor"
         stroke-width="1.75"
-        stroke-linecap="round"
-      />
-      <path
-        d="m8 15.5 4 3.5 4-3.5"
-        stroke="currentColor"
-        stroke-width="1.75"
-        stroke-linecap="round"
         stroke-linejoin="round"
       />
+      <circle cx="12" cy="12" r="2.4" stroke="currentColor" stroke-width="1.75" />
       <path
-        d="M5 9V6.5A1.5 1.5 0 0 1 6.5 5h11A1.5 1.5 0 0 1 19 6.5V9"
+        d="m4.5 4.5 15 15"
         stroke="currentColor"
         stroke-width="1.75"
         stroke-linecap="round"
       />
     </template>
 
-    <!-- Export / download -->
+    <!-- Export / download file -->
     <template v-else-if="name === 'export'">
       <path
         d="M12 4v10"
@@ -125,6 +126,29 @@ defineProps<{
       />
       <path
         d="m8.5 10.5 3.5 3.5 3.5-3.5"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <path
+        d="M5 17v1.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V17"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+      />
+    </template>
+
+    <!-- Import / upload file -->
+    <template v-else-if="name === 'import'">
+      <path
+        d="M12 14V4"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+      />
+      <path
+        d="m8.5 7.5 3.5-3.5 3.5 3.5"
         stroke="currentColor"
         stroke-width="1.75"
         stroke-linecap="round"

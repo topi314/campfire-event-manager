@@ -241,6 +241,33 @@ async function unpublish(t: MeetupTemplate) {
   }
 }
 
+type ImportResult = {
+  templates?: { name: string; id: number; updated?: boolean }[];
+  created?: number;
+  updated?: number;
+};
+
+function exportRecord(t: MeetupTemplate) {
+  return {
+    id: t.id,
+    name: t.name,
+    ...(t.language ? { language: t.language } : {}),
+    payload: t.payload,
+  };
+}
+
+function triggerDownload(filename: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function onImport(ev: Event) {
   const input = ev.target as HTMLInputElement;
   if (!input.files?.length) return;
@@ -251,10 +278,24 @@ async function onImport(ev: Event) {
     for (const f of Array.from(input.files)) {
       fd.append("files", f);
     }
-    const count = input.files.length;
-    await api("/api/templates/import", { method: "POST", body: fd });
+    const res = await api<ImportResult>("/api/templates/import", {
+      method: "POST",
+      body: fd,
+    });
     await load();
-    toast.success(count === 1 ? "Template imported" : `${count} templates imported`);
+    const created = res.created ?? 0;
+    const updated = res.updated ?? 0;
+    const total = created + updated || res.templates?.length || input.files.length;
+    const parts: string[] = [];
+    if (updated) parts.push(`${updated} updated`);
+    if (created) parts.push(`${created} created`);
+    toast.success(
+      parts.length
+        ? `Import complete — ${parts.join(", ")}`
+        : total === 1
+          ? "Template imported"
+          : `${total} templates imported`,
+    );
     input.value = "";
   } catch (e: any) {
     error.value = e.message || "Import failed";
@@ -264,16 +305,23 @@ async function onImport(ev: Event) {
 }
 
 function download(t: MeetupTemplate) {
-  const blob = new Blob(
-    [JSON.stringify({ name: t.name, payload: t.payload }, null, 2)],
-    { type: "application/json" },
+  triggerDownload(
+    `${t.name.replace(/[^\w.-]+/g, "_") || "template"}.json`,
+    exportRecord(t),
   );
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${t.name.replace(/[^\w.-]+/g, "_")}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+}
+
+function downloadMany() {
+  const list = filteredTemplates.value;
+  if (!list.length) return;
+  if (list.length === 1) {
+    download(list[0]);
+    return;
+  }
+  triggerDownload("campfire-templates.json", {
+    templates: list.map(exportRecord),
+  });
+  toast.success(`Exported ${list.length} templates`);
 }
 </script>
 
@@ -298,15 +346,31 @@ function download(t: MeetupTemplate) {
           </div>
           <div class="page-actions">
             <label class="btn">
-              {{ importing ? "Importing…" : "Upload JSON" }}
+              <Icon name="import" />
+              {{ importing ? "Importing…" : "Import" }}
               <input
                 type="file"
                 accept="application/json,.json"
                 multiple
                 hidden
+                :disabled="importing"
                 @change="onImport"
               />
             </label>
+            <button
+              type="button"
+              class="btn"
+              :disabled="!filteredTemplates.length"
+              :title="
+                filteredTemplates.length === templates.length
+                  ? 'Export all templates as one JSON file'
+                  : 'Export the filtered templates as one JSON file'
+              "
+              @click="downloadMany"
+            >
+              <Icon name="export" />
+              Export{{ filteredTemplates.length && filteredTemplates.length !== templates.length ? ` (${filteredTemplates.length})` : "" }}
+            </button>
             <button type="button" class="primary" @click="startCreate">
               <Icon name="plus" />
               New template

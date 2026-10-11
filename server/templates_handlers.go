@@ -444,11 +444,29 @@ func (s *Server) importTemplates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type imported struct {
-		Name string `json:"name"`
-		ID   int64  `json:"id"`
+	existing, err := s.db.ListTemplatesByUser(r.Context(), session.Session.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list templates")
+		return
 	}
-	var created []imported
+	byID := make(map[int64]string, len(existing)) // id → current language
+	for _, row := range existing {
+		lang := ""
+		if row.TemplateLanguage.Valid {
+			lang = strings.TrimSpace(row.TemplateLanguage.String)
+		}
+		byID[row.TemplateID] = lang
+	}
+
+	type imported struct {
+		Name    string `json:"name"`
+		ID      int64  `json:"id"`
+		Updated bool   `json:"updated"`
+	}
+	var results []imported
+	createdCount := 0
+	updatedCount := 0
+
 	for _, fh := range files {
 		f, err := fh.Open()
 		if err != nil {
@@ -462,32 +480,60 @@ func (s *Server) importTemplates(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		name := strings.TrimSuffix(fh.Filename, ".json")
-		payload := json.RawMessage(data)
-
-		var wrapper struct {
-			Name    string          `json:"name"`
-			Payload json.RawMessage `json:"payload"`
-		}
-		if err := json.Unmarshal(data, &wrapper); err == nil && len(wrapper.Payload) > 0 {
-			if wrapper.Name != "" {
-				name = wrapper.Name
-			}
-			payload = wrapper.Payload
-		} else if !json.Valid(data) {
-			writeError(w, http.StatusBadRequest, "invalid json in "+fh.Filename)
-			return
-		}
-
-		if strings.TrimSpace(name) == "" {
-			name = "Imported template"
-		}
-		t, err := s.createTemplateRow(r.Context(), session.Session.UserID, name, payload, "", nil)
+		entries, err := parseImportEntries(fh.Filename, data)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to import template")
+			writeError(w, http.StatusBadRequest, err.Error()+" in "+fh.Filename)
 			return
 		}
-		created = append(created, imported{Name: t.Name, ID: t.ID})
+
+		for _, entry := range entries {
+			name := strings.TrimSpace(entry.Name)
+			if name == "" {
+				name = "Imported template"
+			}
+			payload := entry.Payload
+			if len(payload) == 0 {
+				payload = json.RawMessage(`{}`)
+			}
+			lang := languages.Normalize(entry.Language)
+
+			if existingLang, ok := byID[entry.ID]; ok && entry.ID > 0 {
+				if lang == "" {
+					lang = languages.Normalize(existingLang)
+				}
+				now := time.Now().UTC()
+				row, err := s.db.UpdateTemplate(r.Context(), dbsqlc.UpdateTemplateParams{
+					TemplateName:          name,
+					TemplatePayload:       payload,
+					TemplateLanguage:      database.Text(lang),
+					TemplateID:            entry.ID,
+					TemplateDiscordUserID: session.Session.UserID,
+					TemplateUpdatedAt:     database.Ts(now),
+				})
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "failed to update template")
+					return
+				}
+				t := templateFromUpdate(row)
+				byID[t.ID] = ptrString(t.Language)
+				results = append(results, imported{Name: t.Name, ID: t.ID, Updated: true})
+				updatedCount++
+				continue
+			}
+
+			t, err := s.createTemplateRow(r.Context(), session.Session.UserID, name, payload, lang, nil)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to import template")
+				return
+			}
+			byID[t.ID] = ptrString(t.Language)
+			results = append(results, imported{Name: t.Name, ID: t.ID, Updated: false})
+			createdCount++
+		}
 	}
-	writeJSON(w, http.StatusCreated, created)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"templates": results,
+		"created":   createdCount,
+		"updated":   updatedCount,
+	})
 }

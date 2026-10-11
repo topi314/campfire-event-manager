@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/topi314/campfire-event-manager/internal/meetuptime"
 )
 
 // ClubEvent is a meetup from a club's active feed (upcoming/ongoing).
@@ -80,6 +82,10 @@ func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first i
 		if ev.ClubID == "" {
 			ev.ClubID = resp.Club.ID
 		}
+		// Campfire often omits Z on UTC instants; normalize so clients don't
+		// misread them as browser-local wall clocks.
+		ev.EventTime = meetuptime.NormalizeCampfireInstantRFC3339(ev.EventTime)
+		ev.EventEndTime = meetuptime.NormalizeCampfireInstantRFC3339(ev.EventEndTime)
 		out = append(out, ev)
 	}
 	return out, resp.Club.ActiveFeed.PageInfo.EndCursor, resp.Club.ActiveFeed.PageInfo.HasNextPage, nil

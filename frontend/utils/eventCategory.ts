@@ -85,3 +85,15 @@ export function categoryMatchOrder(liveCategory: string): string[] {
   if (!cat) return [];
   return [cat, ...categoryFallbacks(cat)];
 }
+
+/** Raid Hour / Spotlight / Max Monday are always 18:00–19:00 local. */
+export function isFixedLocalHourCategory(category: string): boolean {
+  switch (category.trim()) {
+    case "Raid Hour":
+    case "Spotlight Hour":
+    case "Max Monday":
+      return true;
+    default:
+      return false;
+  }
+}

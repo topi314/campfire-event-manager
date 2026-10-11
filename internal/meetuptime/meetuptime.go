@@ -230,6 +230,40 @@ func parseInstant(raw string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// ParseCampfireInstant parses timestamps returned by Campfire's API.
+// RFC3339 with Z/offset is preferred; offset-less datetimes are treated as UTC
+// (unlike WallToUTC, which treats offset-less values as wall clocks).
+func ParseCampfireInstant(raw string) (time.Time, bool) {
+	if t, ok := parseInstant(raw); ok {
+		return t.UTC(), true
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" || hasOffsetRE.MatchString(raw) {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02 15:04",
+	} {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}
+
+// NormalizeCampfireInstantRFC3339 rewrites Campfire API timestamps to RFC3339 UTC.
+func NormalizeCampfireInstantRFC3339(raw string) string {
+	if t, ok := ParseCampfireInstant(raw); ok {
+		return FormatRFC3339(t)
+	}
+	return strings.TrimSpace(raw)
+}
+
 // Combine builds a wall-clock time.Time in a dummy fixed zone (UTC label, wall values).
 func Combine(day Day, clock Clock) time.Time {
 	return time.Date(day.Year, day.Month, day.Day, clock.Hour, clock.Minute, 0, 0, time.UTC)

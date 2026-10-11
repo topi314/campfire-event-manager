@@ -25,6 +25,38 @@ export function toLocalInput(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+const hasExplicitOffset = (value: string) =>
+  /[zZ]$/.test(value) || /[+-]\d{2}:?\d{2}$/.test(value);
+
+/**
+ * Parse a Campfire absolute timestamp.
+ * Offset-less datetimes are treated as UTC (Campfire / Go convention).
+ * ECMAScript would otherwise read them as browser-local wall clocks.
+ */
+export function parseCampfireInstant(value: string | undefined | null): Date | null {
+  if (!value?.trim()) return null;
+  const trimmed = value.trim();
+  let raw = trimmed;
+  if (!hasExplicitOffset(trimmed) && /T|\s\d{2}:/.test(trimmed)) {
+    // "2026-10-15T08:00:00.000" → UTC instant, not local 8am.
+    raw = trimmed.replace(/\s+/, "T").replace(/[Zz]$/, "") + "Z";
+  }
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Campfire instant → datetime-local wall clock in `timeZone`. */
+export function instantToLocalInput(
+  iso: string | undefined | null,
+  timeZone?: string,
+): string {
+  const d = parseCampfireInstant(iso);
+  if (!d) return "";
+  const tz = timeZone || browserTimeZone();
+  const parts = partsInTimeZone(d, tz);
+  return parts ? formatLocalDateTimeParts(parts) : "";
+}
+
 export function formatLocalDateTimeParts(p: LocalDateTime): string {
   return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hours)}:${pad(p.minutes)}`;
 }

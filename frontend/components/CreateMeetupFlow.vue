@@ -13,11 +13,10 @@ import type { LatLngPoint } from "~/components/LocationPicker.vue";
 import {
   ensureMinMeetupEnd,
   formatLocalDateTime,
-  formatLocalDateTimeParts,
+  instantToLocalInput,
   isMeetupDurationValid,
   MIN_MEETUP_DURATION_MINUTES,
   parseLocalDateTime,
-  partsInTimeZone,
 } from "~/utils/datetime";
 import {
   applyPlaceholders,
@@ -31,7 +30,11 @@ import {
   type PlaceholderDef,
 } from "~/utils/placeholders";
 import { DEFAULT_LOCATION_JITTER_METERS, parseCampfireLocation } from "~/utils/location";
-import { categoryFromLiveEventName, categoryMatchOrder } from "~/utils/eventCategory";
+import {
+  categoryFromLiveEventName,
+  categoryMatchOrder,
+  isFixedLocalHourCategory,
+} from "~/utils/eventCategory";
 import { buildMeetupBodyFromDraft, parseDraftPayload } from "~/utils/drafts";
 import { fetchMeetupSchedule } from "~/utils/meetupSchedule";
 import { isCampfireTokenError } from "~/composables/useSessionToken";
@@ -66,6 +69,8 @@ const clubEventsLoadedFor = ref("");
 const drafts = ref<MeetupDraftItem[]>([]);
 const draftsBusy = ref(false);
 const editingDraftId = ref<number | null>(null);
+/** Bumped to drop in-flight hydrate/blank work that would wipe a loaded draft. */
+let hydrateGen = 0;
 
 const selectedClubId = ref("");
 const selectedLiveEventId = ref("");
@@ -112,6 +117,10 @@ onMounted(async () => {
   if (!(await ensureAuth())) {
     await navigateTo("/login");
     return;
+  }
+  // Claim draft-edit mode before club bootstrap so async hydrate can't clear the pin.
+  if (props.draftId != null && Number.isFinite(props.draftId) && props.draftId > 0) {
+    editingDraftId.value = props.draftId;
   }
   await Promise.all([loadTemplates(), loadDrafts()]);
   if (token.value) await loadCampfire();
@@ -544,6 +553,8 @@ function resetPlaceholders() {
 }
 
 async function blankDraftStandalone() {
+  if (editingDraftId.value != null) return;
+  const gen = hydrateGen;
   draft.name = "";
   draft.details = "";
   draft.address = "";
@@ -552,6 +563,7 @@ async function blankDraftStandalone() {
   draft.allInvited = true;
   draft.createdByCommunityAmbassador = true;
   const times = await resolveSchedule({ liveEvent: null });
+  if (gen !== hydrateGen || editingDraftId.value != null) return;
   draft.eventTime = times.eventTime;
   draft.eventEndTime = times.eventEndTime;
   draft.locationJitterMeters = DEFAULT_LOCATION_JITTER_METERS;
@@ -560,6 +572,8 @@ async function blankDraftStandalone() {
 }
 
 async function blankDraftFromLiveEvent(ev: LiveEvent) {
+  if (editingDraftId.value != null) return;
+  const gen = hydrateGen;
   draft.name = "";
   draft.details = "";
   draft.address = "";
@@ -568,6 +582,7 @@ async function blankDraftFromLiveEvent(ev: LiveEvent) {
   draft.allInvited = true;
   draft.createdByCommunityAmbassador = true;
   const times = await resolveSchedule({ liveEvent: ev });
+  if (gen !== hydrateGen || editingDraftId.value != null) return;
   draft.eventTime = times.eventTime;
   draft.eventEndTime = times.eventEndTime;
   draft.locationJitterMeters = DEFAULT_LOCATION_JITTER_METERS;
@@ -576,17 +591,22 @@ async function blankDraftFromLiveEvent(ev: LiveEvent) {
 }
 
 async function blankDraftForSelection() {
+  if (editingDraftId.value != null) return;
   if (selectedLiveEvent.value) await blankDraftFromLiveEvent(selectedLiveEvent.value);
   else await blankDraftStandalone();
 }
 
 async function hydrateDraft() {
+  // Saved-draft edit owns the form; club/live-event bootstrap must not replace it.
+  if (editingDraftId.value != null) return;
+
   if (!selectedClub.value) {
     draftReady.value = false;
     draftLocation.value = null;
     return;
   }
 
+  const gen = ++hydrateGen;
   const ev = selectedLiveEvent.value;
   const raw = rawPayload.value;
   if (selectedTemplate.value && raw) {
@@ -595,6 +615,7 @@ async function hydrateDraft() {
       startTime: raw.startTime || raw.eventTime,
       endTime: raw.endTime || raw.eventEndTime,
     });
+    if (gen !== hydrateGen || editingDraftId.value != null) return;
     // Load raw template copy so {{placeholders}} stay visible until Preview / submit.
     draft.name = raw.name || "";
     draft.details = raw.details || "";
@@ -624,8 +645,10 @@ async function hydrateDraft() {
 
   if (!draftReady.value) {
     await blankDraftForSelection();
+    if (gen !== hydrateGen || editingDraftId.value != null) return;
   } else if (ev) {
     const times = await resolveSchedule({ liveEvent: ev });
+    if (gen !== hydrateGen || editingDraftId.value != null) return;
     draft.eventTime = times.eventTime;
     draft.eventEndTime = times.eventEndTime;
     draft.campfireLiveEventId = ev.id;
@@ -780,7 +803,7 @@ watch(selectedEventId, (id) => {
     return;
   }
   const ev = clubEvents.value.find((e) => e.id === id);
-  if (ev) loadDraftFromClubEvent(ev);
+  if (ev) void loadDraftFromClubEvent(ev);
 });
 
 watch(mode, (next, prev) => {
@@ -870,11 +893,7 @@ watch(
 );
 
 function isoToLocalInput(iso: string | undefined | null): string {
-  if (!iso?.trim()) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const parts = partsInTimeZone(d, timeZone.value);
-  return parts ? formatLocalDateTimeParts(parts) : "";
+  return instantToLocalInput(iso, timeZone.value);
 }
 
 function clearEditDraft() {
@@ -973,11 +992,9 @@ function liveEventOptionLabel(ev: LiveEvent) {
   return ev.eventName;
 }
 
-function loadDraftFromClubEvent(ev: ClubEvent) {
+async function loadDraftFromClubEvent(ev: ClubEvent) {
   draft.name = ev.name || "";
   draft.details = ev.details || "";
-  draft.eventTime = isoToLocalInput(ev.eventTime);
-  draft.eventEndTime = isoToLocalInput(ev.eventEndTime);
   draft.address = ev.address || "";
   draft.coverPhotoUrl = ev.coverPhotoUrl || "";
   originalCoverPhotoUrl.value = ev.coverPhotoUrl || "";
@@ -990,11 +1007,38 @@ function loadDraftFromClubEvent(ev: ClubEvent) {
   if (ev.campfireLiveEventId && ev.campfireLiveEventId !== selectedLiveEventId.value) {
     selectedLiveEventId.value = ev.campfireLiveEventId;
   }
+
+  const start = isoToLocalInput(ev.eventTime);
+  const end = isoToLocalInput(ev.eventEndTime);
+  const live =
+    liveEvents.value.find((e) => e.id === (ev.campfireLiveEventId || "")) || null;
+  const category = live ? categoryFromLiveEventName(live.eventName) : "";
+  // Raid Hour / Spotlight / Max Monday are always 18:00–19:00 local. Campfire
+  // may store the worldwide UTC window instead — keep the calendar day, fix clocks.
+  if (isFixedLocalHourCategory(category)) {
+    const times = await resolveSchedule({
+      liveEvent: live,
+      date: start ? start.slice(0, 10) : undefined,
+      startTime: "18:00",
+      endTime: "19:00",
+    });
+    draft.eventTime = times.eventTime;
+    draft.eventEndTime = times.eventEndTime;
+  } else {
+    draft.eventTime = start;
+    draft.eventEndTime = end;
+  }
   draftReady.value = true;
 }
 
 function clubEventOptionLabel(ev: ClubEvent) {
-  const when = ev.eventTime ? formatLocalDateTime(isoToLocalInput(ev.eventTime)) : "";
+  let local = isoToLocalInput(ev.eventTime);
+  const live = liveEvents.value.find((e) => e.id === (ev.campfireLiveEventId || ""));
+  if (live && isFixedLocalHourCategory(categoryFromLiveEventName(live.eventName)) && local) {
+    // Show the real meetup hour, not Campfire's worldwide window.
+    local = `${local.slice(0, 10)}T18:00`;
+  }
+  const when = local ? formatLocalDateTime(local) : "";
   return when && when !== "—" ? `${ev.name} · ${when}` : ev.name;
 }
 
@@ -1091,6 +1135,7 @@ function loadDraftFromPayload(p: DraftMeetupPayload) {
   if (mode.value !== "create") mode.value = "create";
   detailsTouched.value = true;
   beginProgrammaticUpdate();
+  hydrateGen++;
   draft.name = p.name;
   draft.details = p.details;
   draft.eventTime = p.eventTime;
@@ -1102,7 +1147,11 @@ function loadDraftFromPayload(p: DraftMeetupPayload) {
   draft.createdByCommunityAmbassador = p.createdByCommunityAmbassador ?? true;
   draft.locationJitterMeters = p.locationJitterMeters;
   draft.campfireLiveEventId = p.liveEventId || "";
-  draftLocation.value = { ...p.location };
+  const loc = p.location;
+  draftLocation.value =
+    loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)
+      ? { lat: loc.lat, lng: loc.lng }
+      : null;
   if (p.clubId) selectedClubId.value = p.clubId;
   selectedLiveEventId.value = p.liveEventId || "";
   selectedTemplateId.value = resolveDraftTemplateId(p);
@@ -1133,6 +1182,8 @@ function loadDraftFromPayload(p: DraftMeetupPayload) {
 async function applyDraftRoute() {
   const id = props.draftId;
   if (id == null || !Number.isFinite(id) || id <= 0) return;
+  editingDraftId.value = id;
+  hydrateGen++;
   let item = drafts.value.find((d) => d.id === id);
   if (!item) {
     await loadDrafts();
@@ -1140,13 +1191,13 @@ async function applyDraftRoute() {
   }
   if (!item) {
     error.value = "Draft not found";
+    editingDraftId.value = null;
     await navigateTo("/create/drafts");
     return;
   }
   error.value = "";
   success.value = "";
   mode.value = "create";
-  editingDraftId.value = id;
   loadDraftFromPayload(parseDraftPayload(item));
 }
 

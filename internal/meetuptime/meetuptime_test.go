@@ -70,3 +70,30 @@ func TestParseWallClockRejectsOffset(t *testing.T) {
 		t.Fatalf("got %#v ok=%v", c, ok)
 	}
 }
+
+func TestParseCampfireInstantTreatsNaiveAsUTC(t *testing.T) {
+	got, ok := ParseCampfireInstant("2026-10-15T08:00:00.000")
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	want := time.Date(2026, 10, 15, 8, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	norm := NormalizeCampfireInstantRFC3339("2026-10-15T08:00:00.000")
+	if norm != "2026-10-15T08:00:00Z" {
+		t.Fatalf("norm=%q", norm)
+	}
+}
+
+func TestWallToUTCStillTreatsNaiveAsWallClock(t *testing.T) {
+	// Create/edit form values must stay wall-clock in the user zone — not UTC.
+	got, err := WallToUTC("2026-10-15T18:00", "Europe/Berlin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 10, 15, 16, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}

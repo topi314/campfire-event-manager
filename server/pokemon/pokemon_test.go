@@ -51,6 +51,25 @@ func TestExtractRaidHourMulti(t *testing.T) {
 	}
 }
 
+func TestExtractSuperMegaAndShadow(t *testing.T) {
+	got := ExtractSpecies("Falinks Super Mega Raid Day", "Super Mega Raid Day", eventcategory.All)
+	if len(got) != 1 || got[0].Name != "Falinks" {
+		t.Fatalf("super mega=%v", got)
+	}
+	got = ExtractSpecies("Shadow Groudon Raid Day 1", "Shadow Raid Day", eventcategory.All)
+	if len(got) != 1 || got[0].Name != "Groudon" {
+		t.Fatalf("shadow groudon=%v", got)
+	}
+	got = ExtractSpecies("Entei Shadow Raid Day", "Shadow Raid Day", eventcategory.All)
+	if len(got) != 1 || got[0].Name != "Entei" {
+		t.Fatalf("entei shadow=%v", got)
+	}
+	got = ExtractSpecies("Shadow Lugia, Shadow Ho-Oh Raid Hour", "Shadow Raid Day", eventcategory.All)
+	if len(got) != 2 {
+		t.Fatalf("shadow hour len=%d want 2", len(got))
+	}
+}
+
 func TestExtractSkipGOFest(t *testing.T) {
 	got := ExtractSpecies("GO Fest: Squirtle", "GO Fest", eventcategory.All)
 	if len(got) != 0 {

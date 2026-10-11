@@ -15,16 +15,15 @@ import {
   parseTimeOfDay,
 } from "~/utils/datetime";
 import { DEFAULT_LOCATION_JITTER_METERS } from "~/utils/location";
-import {
-  CATEGORY_SELECT_CUSTOM,
-  TEMPLATE_CATEGORY_OPTIONS,
-  isTemplateCategoryOption,
-} from "~/utils/eventCategory";
+import { CATEGORY_SELECT_CUSTOM } from "~/utils/eventCategory";
 import {
   TEMPLATE_LANGUAGES,
   isTemplateLanguageCode,
   type TemplateLanguageCode,
 } from "~/utils/languages";
+
+const { options: TEMPLATE_CATEGORY_OPTIONS, isOption: isTemplateCategoryOption } =
+  useEventCategories();
 
 const props = withDefaults(
   defineProps<{
@@ -63,8 +62,8 @@ const form = reactive({
   address: "",
   coverPhotoUrl: "",
   commentsPermissions: "ORGANIZERS_ONLY",
-  startTime: "14:00",
-  endTime: "17:00",
+  startTime: "",
+  endTime: "",
   allInvited: true,
   createdByCommunityAmbassador: true,
   locationJitterMeters: DEFAULT_LOCATION_JITTER_METERS,
@@ -141,8 +140,8 @@ function loadFromProps() {
     form.address = "";
     form.coverPhotoUrl = "";
     form.commentsPermissions = "ORGANIZERS_ONLY";
-    form.startTime = "14:00";
-    form.endTime = "17:00";
+    form.startTime = "";
+    form.endTime = "";
     form.allInvited = true;
     form.createdByCommunityAmbassador = true;
     form.locationJitterMeters = DEFAULT_LOCATION_JITTER_METERS;
@@ -159,11 +158,17 @@ function loadFromProps() {
   form.address = p.address || "";
   form.coverPhotoUrl = p.coverPhotoUrl || "";
   form.commentsPermissions = p.commentsPermissions || "ORGANIZERS_ONLY";
-  form.startTime = formatTimeOfDay(parseTimeOfDay(p.startTime) ?? { hours: 14, minutes: 0 });
-  form.endTime = ensureMinMeetupEndTime(
-    form.startTime,
-    formatTimeOfDay(parseTimeOfDay(p.endTime) ?? { hours: 17, minutes: 0 }),
-  );
+  const startTod = parseTimeOfDay(p.startTime);
+  const endTod = parseTimeOfDay(p.endTime);
+  form.startTime = startTod ? formatTimeOfDay(startTod) : "";
+  form.endTime = startTod
+    ? ensureMinMeetupEndTime(
+        form.startTime,
+        endTod ? formatTimeOfDay(endTod) : "",
+      )
+    : endTod
+      ? formatTimeOfDay(endTod)
+      : "";
   form.allInvited = p.allInvited ?? true;
   form.createdByCommunityAmbassador = p.createdByCommunityAmbassador ?? true;
   form.locationJitterMeters =
@@ -223,8 +228,8 @@ function buildPayload(): MeetupPayload {
     address: form.address || undefined,
     coverPhotoUrl: form.coverPhotoUrl || undefined,
     commentsPermissions: form.commentsPermissions,
-    startTime: form.startTime,
-    endTime: form.endTime,
+    ...(form.startTime.trim() ? { startTime: form.startTime } : {}),
+    ...(form.endTime.trim() ? { endTime: form.endTime } : {}),
     allInvited: form.allInvited,
     createdByCommunityAmbassador: form.createdByCommunityAmbassador,
     ...(placeholders.length ? { placeholders } : {}),
@@ -232,10 +237,18 @@ function buildPayload(): MeetupPayload {
 }
 
 function onSubmit() {
-  form.endTime = ensureMinMeetupEndTime(form.startTime, form.endTime);
-  if (!isMeetupTimeOfDayDurationValid(form.startTime, form.endTime)) {
-    timeError.value = `End time must be at least ${MIN_MEETUP_DURATION_MINUTES} minutes after start`;
-    return;
+  const hasStart = !!form.startTime.trim();
+  const hasEnd = !!form.endTime.trim();
+  if (hasStart || hasEnd) {
+    if (!hasStart || !hasEnd) {
+      timeError.value = "Set both start and end, or leave both empty";
+      return;
+    }
+    form.endTime = ensureMinMeetupEndTime(form.startTime, form.endTime);
+    if (!isMeetupTimeOfDayDurationValid(form.startTime, form.endTime)) {
+      timeError.value = `End time must be at least ${MIN_MEETUP_DURATION_MINUTES} minutes after start`;
+      return;
+    }
   }
   timeError.value = "";
   const tplName = name.value.trim() || form.title.trim() || "Untitled template";
@@ -290,7 +303,7 @@ function onSubmit() {
       <label>Custom placeholders</label>
       <div class="placeholder-fill placeholder-grid">
         <p class="hint muted" style="grid-column: 1 / -1; margin: 0">
-          Optional label and default shown when creating a meetup.
+          Label + default for create
         </p>
         <div v-for="ph in placeholderMeta" :key="ph.key" class="placeholder-row">
           <code v-text="'{{' + ph.key + '}}'" />
@@ -329,13 +342,13 @@ function onSubmit() {
             multiline
             :rows="10"
           />
-          <PlaceholderHelp />
+          <PlaceholderHelp compact />
         </div>
 
         <div class="row-2">
           <div class="field">
             <label for="tpl-start">Start time</label>
-            <input id="tpl-start" v-model="form.startTime" type="time" required />
+            <input id="tpl-start" v-model="form.startTime" type="time" />
           </div>
           <div class="field">
             <label for="tpl-end">End time</label>
@@ -343,8 +356,7 @@ function onSubmit() {
               id="tpl-end"
               v-model="form.endTime"
               type="time"
-              required
-              :min="form.startTime"
+              :min="form.startTime || undefined"
             />
           </div>
         </div>
@@ -352,9 +364,7 @@ function onSubmit() {
           {{ timeError }}
         </p>
         <p class="hint muted" style="margin-top: -0.35rem">
-          Clock times in your Settings timezone (end at least
-          {{ MIN_MEETUP_DURATION_MINUTES }} minutes after start). When you create a meetup, the
-          calendar day comes from the live event (preferring Campfire’s local start date).
+          Optional · empty = category default (11-17 / 14-17 / 18-19) · day from live event
         </p>
 
         <div class="field">
@@ -363,7 +373,7 @@ function onSubmit() {
             :all-invited="form.allInvited"
             @update:all-invited="form.allInvited = $event"
           />
-          <p class="hint muted">Everybody invites the whole club; Nobody creates an unlisted meetup.</p>
+          <p class="hint muted">Everybody = whole club; Nobody = unlisted</p>
         </div>
 
         <div class="field">
@@ -376,7 +386,6 @@ function onSubmit() {
             <input v-model="form.createdByCommunityAmbassador" type="checkbox" />
             Mark as Community Ambassador event
           </label>
-          <p class="hint muted">Default for meetups created from this template.</p>
         </div>
       </div>
 
@@ -412,7 +421,7 @@ function onSubmit() {
             </LocationPicker>
           </ClientOnly>
           <p class="hint muted">
-            Jitter randomly offsets each meetup within this many meters of the pin so markers don’t stack. Use 0 for the exact spot.
+            Jitter: random offset so pins don’t stack (0 = exact)
           </p>
           <div class="field" style="margin-top: 0.75rem; margin-bottom: 0">
             <label for="tpl-address">Address</label>
@@ -420,9 +429,8 @@ function onSubmit() {
               id="tpl-address"
               v-model="form.address"
               type="text"
-              placeholder="Optional — filled from place search"
+              placeholder="Optional — from place search"
             />
-            <p class="hint muted">Shown on the meetup; place search fills this when you pick a result.</p>
           </div>
         </div>
       </div>

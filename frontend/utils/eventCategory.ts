@@ -1,30 +1,21 @@
-/** Same categorization as campfire-tools/internal/eventcategory. */
+/**
+ * Template category helpers. Live-event name → category matching runs on the
+ * backend only (`eventcategory.FromName`); live events arrive with `category`
+ * already set. Built-in preset names come from `/api/config` → `eventCategories`
+ * (see `useEventCategories`); the list below is a fallback until that loads.
+ */
 
 export const EVENT_CATEGORY_OTHER = "Other";
 export const EVENT_CATEGORY_NO_EVENT = "No Event";
 
-export const EVENT_CATEGORY_PATTERNS: Record<string, string[]> = {
-  "Raid Day": ["Raid Day", "Mega Raid"],
-  "Raid Hour": ["Raid Hour"],
-  "Max Monday": ["Max Monday"],
-  "Research Day": ["Research Day"],
-  "Hatch Day": ["Hatch Day"],
-  "Community Day": ["Community Day"],
-  "Community Day Classic": [
-    "Community Day Classic",
-    "Community Classic Day",
-    "Community Classic",
-  ],
-  "Spotlight Hour": ["Spotlight Hour"],
-  "Max Battle Day": ["Max Battle Day", "Max Battle Weekend", "Max Battle", "Max Weekend", "Gigantamax", "GMAX"],
-  "GO Tour": ["GO Tour"],
-  "GO Fest": ["GO Fest"],
-  "GO Wild Area": ["GOWA", "GO Wild Area"],
-  "Friendship Friday": ["Friendship Friday"],
+export type EventCategoryCatalogEntry = {
+  name: string;
+  fixedLocalHour: boolean;
+  fallbacks: string[];
 };
 
-/** Match priority (first hit wins). */
-export const EVENT_CATEGORY_ORDERED = [
+/** Fallback presets if `/api/config` has not loaded yet (keep in sync with backend Ordered). */
+export const TEMPLATE_CATEGORY_OPTIONS_FALLBACK = [
   "GO Wild Area",
   "GO Fest",
   "GO Tour",
@@ -32,63 +23,85 @@ export const EVENT_CATEGORY_ORDERED = [
   "Community Day",
   "Max Battle Day",
   "Research Day",
+  "Catch Mastery",
   "Hatch Day",
   "Friendship Friday",
+  "Super Mega Raid Day",
+  "Shadow Raid Day",
   "Raid Day",
   "Raid Hour",
   "Max Monday",
   "Spotlight Hour",
 ] as const;
 
-export type EventCategoryPreset = (typeof EVENT_CATEGORY_ORDERED)[number];
+/** @deprecated Prefer `useEventCategories().options` (backend catalog). */
+export const TEMPLATE_CATEGORY_OPTIONS = [...TEMPLATE_CATEGORY_OPTIONS_FALLBACK];
 
-/** Preset categories for template dropdown (excludes Other / No Event). */
-export const TEMPLATE_CATEGORY_OPTIONS = [...EVENT_CATEGORY_ORDERED];
+export type EventCategoryPreset = (typeof TEMPLATE_CATEGORY_OPTIONS_FALLBACK)[number];
 
 export const CATEGORY_SELECT_CUSTOM = "__custom__";
 
-export function isTemplateCategoryOption(name: string): boolean {
-  return (TEMPLATE_CATEGORY_OPTIONS as readonly string[]).includes(name);
+export function isTemplateCategoryOption(
+  name: string,
+  options: readonly string[] = TEMPLATE_CATEGORY_OPTIONS_FALLBACK,
+): boolean {
+  return options.includes(name);
 }
 
-/** Infer category from a Campfire live event name. */
-export function categoryFromLiveEventName(eventName: string): string {
-  const name = eventName.trim().toLowerCase();
-  if (!name) return EVENT_CATEGORY_NO_EVENT;
-  for (const category of EVENT_CATEGORY_ORDERED) {
-    for (const pattern of EVENT_CATEGORY_PATTERNS[category] || []) {
-      if (name.includes(pattern.toLowerCase())) return category;
-    }
-  }
-  return EVENT_CATEGORY_OTHER;
-}
-
-export function isPresetCategory(name: string): boolean {
+export function isPresetCategory(
+  name: string,
+  options: readonly string[] = TEMPLATE_CATEGORY_OPTIONS_FALLBACK,
+): boolean {
   if (name === EVENT_CATEGORY_OTHER || name === EVENT_CATEGORY_NO_EVENT) return true;
-  return Object.prototype.hasOwnProperty.call(EVENT_CATEGORY_PATTERNS, name);
+  return options.includes(name);
 }
 
-/**
- * Alternate categories to try when no template is tagged with `category`.
- * Community Day and Community Day Classic fall back to each other.
- */
-export function categoryFallbacks(category: string): string[] {
+/** Alternate categories when no template matches exactly. */
+export function categoryFallbacks(
+  category: string,
+  catalog?: EventCategoryCatalogEntry[],
+): string[] {
   const cat = category.trim();
-  if (cat === "Community Day Classic") return ["Community Day"];
-  if (cat === "Community Day") return ["Community Day Classic"];
-  return [];
+  if (catalog?.length) {
+    const hit = catalog.find((c) => c.name === cat);
+    if (hit) return hit.fallbacks || [];
+  }
+  switch (cat) {
+    case "Community Day Classic":
+      return ["Community Day"];
+    case "Community Day":
+      return ["Community Day Classic"];
+    case "Super Mega Raid Day":
+    case "Shadow Raid Day":
+      return ["Raid Day"];
+    case "Catch Mastery":
+      return ["Research Day"];
+    default:
+      return [];
+  }
 }
 
-/** Categories that count as a match for `liveCategory` (exact first, then fallbacks). */
-export function categoryMatchOrder(liveCategory: string): string[] {
+/** Exact category first, then fallbacks. */
+export function categoryMatchOrder(
+  liveCategory: string,
+  catalog?: EventCategoryCatalogEntry[],
+): string[] {
   const cat = liveCategory.trim();
   if (!cat) return [];
-  return [cat, ...categoryFallbacks(cat)];
+  return [cat, ...categoryFallbacks(cat, catalog)];
 }
 
 /** Raid Hour / Spotlight / Max Monday are always 18:00–19:00 local. */
-export function isFixedLocalHourCategory(category: string): boolean {
-  switch (category.trim()) {
+export function isFixedLocalHourCategory(
+  category: string,
+  catalog?: EventCategoryCatalogEntry[],
+): boolean {
+  const cat = category.trim();
+  if (catalog?.length) {
+    const hit = catalog.find((c) => c.name === cat);
+    if (hit) return hit.fixedLocalHour;
+  }
+  switch (cat) {
     case "Raid Hour":
     case "Spotlight Hour":
     case "Max Monday":

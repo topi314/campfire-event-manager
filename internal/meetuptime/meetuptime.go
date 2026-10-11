@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	clockRE     = regexp.MustCompile(`^(\d{1,2}):(\d{2})(?::\d{2})?$`)
-	wallDateRE  = regexp.MustCompile(`^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$`)
+	clockRE = regexp.MustCompile(`^(\d{1,2}):(\d{2})(?::\d{2})?$`)
+	// Optional fractional seconds (Campfire localStartTime often ends in .000).
+	wallDateRE  = regexp.MustCompile(`^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?$`)
 	hasOffsetRE = regexp.MustCompile(`(?i)(z|[+-]\d{2}:?\d{2})$`)
 )
 
@@ -57,8 +58,9 @@ type Schedule struct {
 }
 
 // Resolve builds wall-clock start/end for a meetup.
-// Live events supply the calendar day; clocks come from template HH:mm, then
-// category defaults. Absolute Campfire window timestamps are never used as clocks.
+// Clocks: template HH:mm when set, otherwise category defaults.
+// Live-event localStart/EndTime and start/endTimestamp are not used for clocks
+// (they are unreliable); the live event still supplies the calendar day.
 func Resolve(in Input) (Schedule, error) {
 	loc, err := LoadLocation(in.TimeZone)
 	if err != nil {
@@ -84,42 +86,15 @@ func Resolve(in Input) (Schedule, error) {
 	startClock := Clock{defStart.Hour, defStart.Minute}
 	endClock := Clock{defEnd.Hour, defEnd.Minute}
 
-	fixed := eventcategory.IsFixedLocalHour(category)
-	if !fixed {
-		if c, ok := ParseWallClock(in.StartTime); ok {
-			startClock = c
-		} else if in.Live != nil {
-			if c, ok := ParseWallClock(in.Live.LocalStartTime); ok {
-				startClock = c
-			}
-		}
-		if c, ok := ParseWallClock(in.EndTime); ok {
-			endClock = c
-		} else if in.Live != nil {
-			if c, ok := ParseWallClock(in.Live.LocalEndTime); ok {
-				endClock = c
-			}
-		}
-	} else {
-		// Template clocks still win for fixed-hour categories when explicitly set
-		// (e.g. a Raid Hour template with 18:00). Otherwise use category defaults —
-		// never Campfire's worldwide window.
-		if c, ok := ParseWallClock(in.StartTime); ok {
-			startClock = c
-		}
-		if c, ok := ParseWallClock(in.EndTime); ok {
-			endClock = c
-		}
+	if c, ok := ParseWallClock(in.StartTime); ok {
+		startClock = c
+	}
+	if c, ok := ParseWallClock(in.EndTime); ok {
+		endClock = c
 	}
 
 	start := Combine(day, startClock)
-	endDay := day
-	if !fixed && in.Live != nil {
-		if d, ok := ParseDay(in.Live.LocalEndTime); ok {
-			endDay = d
-		}
-	}
-	end := Combine(endDay, endClock)
+	end := Combine(day, endClock)
 	if !end.After(start) {
 		end = end.Add(24 * time.Hour)
 	}

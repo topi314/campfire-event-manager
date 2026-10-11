@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { MeetupPayload, MeetupTemplate } from "~/types";
-import { TEMPLATE_CATEGORY_OPTIONS } from "~/utils/eventCategory";
 import { TEMPLATE_LANGUAGES, templateLanguageLabel } from "~/utils/languages";
 import { formatInstantDate } from "~/utils/datetime";
 import { coverImageSrc } from "~/utils/covers";
+
+const { options: TEMPLATE_CATEGORY_OPTIONS } = useEventCategories();
 
 const props = defineProps<{
   /** Open this published template in the preview when present. */

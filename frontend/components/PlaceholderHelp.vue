@@ -41,15 +41,20 @@ onBeforeUnmount(() => {
 <template>
   <div class="placeholder-help">
     <p class="lede muted">
-      Use <code v-pre>{{key}}</code> tokens in the meetup title and description.
-      Letter case does not matter. Built-ins fill on the server when you create or post
-      (and in Preview). Any other key becomes a required create-time field unless you set a
-      default.
+      <template v-if="compact">
+        <code v-pre>{{key}}</code> tokens · filled in Preview / on post
+      </template>
+      <template v-else>
+        Use <code v-pre>{{key}}</code> tokens in the meetup title and description.
+        Letter case does not matter. Built-ins fill on the server when you create or post
+        (and in Preview). Any other key becomes a required create-time field unless you set a
+        default.
+      </template>
     </p>
 
     <button type="button" class="open-btn" @click="open = true">
-      View placeholder help
-      <span class="count muted">({{ BUILTIN_PLACEHOLDERS.length }} built-ins)</span>
+      Placeholder help
+      <span class="count muted">({{ BUILTIN_PLACEHOLDERS.length }})</span>
     </button>
 
     <Teleport to="body">
@@ -103,7 +108,8 @@ onBeforeUnmount(() => {
             <h3>Event Pokémon</h3>
             <p class="muted section-p">
               Extracted from the live event title for categories like Community Day, Raid Hour,
-              Spotlight Hour, Research/Hatch Day, Max Monday/Battle Day (not GO Fest/Tour/etc.).
+              Raid Day, Super Mega Raid Day, Shadow Raid Day, Spotlight Hour, Research Day,
+              Catch Mastery, Hatch Day, Max Monday/Battle Day (not GO Fest/Tour/etc.).
               Form prefixes (Mega, Shadow, Alolan, Galarian, …) are matched when present.
               <code v-pre>{{eventPokemon}}</code> is translated to the meetup language
               (defaults from the template; overridable on create) and is editable when used.

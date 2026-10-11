@@ -27,7 +27,7 @@ type meetupScheduleRequest struct {
 }
 
 // campfireMeetupSchedule resolves wall-clock meetup start/end for the create form.
-// Clocks come from template HH:mm or category defaults; live events only supply the day.
+// Clocks: template HH:mm when set, otherwise category defaults (live Campfire times unused).
 func (s *Server) campfireMeetupSchedule(w http.ResponseWriter, r *http.Request) {
 	var body meetupScheduleRequest
 	if err := decodeJSON(r, &body); err != nil {

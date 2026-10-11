@@ -367,6 +367,42 @@ export function isMeetupDurationValid(start: string, end: string): boolean {
 }
 
 /**
+ * Parse Campfire live-event start/end timestamps into UTC instants.
+ * Returns null when either bound is missing or end is before start.
+ */
+export function liveEventWindowBounds(ev: {
+  startTimestamp?: string | null;
+  endTimestamp?: string | null;
+}): { start: Date; end: Date } | null {
+  const start = parseCampfireInstant(ev.startTimestamp);
+  const end = parseCampfireInstant(ev.endTimestamp);
+  if (!start || !end) return null;
+  if (end.getTime() < start.getTime()) return null;
+  return { start, end };
+}
+
+/**
+ * True when meetup start/end (wall clocks in `timeZone`) fall inside the live
+ * event's Campfire timestamp window. Missing/unparseable window → true (skip).
+ */
+export function isMeetupWithinLiveEventWindow(
+  eventTime: string,
+  eventEndTime: string,
+  live: { startTimestamp?: string | null; endTimestamp?: string | null },
+  timeZone?: string,
+): boolean {
+  const window = liveEventWindowBounds(live);
+  if (!window) return true;
+  const startIso = toISO(eventTime, timeZone);
+  const endIso = toISO(eventEndTime, timeZone);
+  if (!startIso || !endIso) return true;
+  const startMs = new Date(startIso).getTime();
+  const endMs = new Date(endIso).getTime();
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return true;
+  return startMs >= window.start.getTime() && endMs <= window.end.getTime();
+}
+
+/**
  * Return an end datetime-local that is at least `minutes` after start.
  * If `end` already satisfies that, it is returned unchanged.
  */

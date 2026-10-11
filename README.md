@@ -195,7 +195,7 @@ Template **language** is set when creating/editing a template (used for Browse f
 
 After placeholders are applied, title must be ≤ **120 characters** and description ≤ **1000 characters** to post (drafts may exceed this).
 
-Optional `category` matches campfire-tools live-event categories (`Community Day`, `Raid Hour`, …). On create, templates are filtered by the selected live event’s inferred category and a matching categorized template is auto-selected.
+Optional `category` matches live-event categories (`Community Day`, `Raid Hour`, `Super Mega Raid Day`, `Shadow Raid Day`, …). On create, templates are filtered by the selected live event’s inferred category and a matching categorized template is auto-selected. Super Mega Raid Day and Shadow Raid Day fall back to Raid Day.
 
 `locationJitterMeters` (default 25) randomly offsets the pin within that radius when creating so meetups don’t stack on the map. Set `0` for exact coordinates.
 

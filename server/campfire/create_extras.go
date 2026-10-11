@@ -16,6 +16,9 @@ type LiveEvent struct {
 	LocalEndTime         string  `json:"localEndTime"`
 	ModalHeadingImageURL string  `json:"modalHeadingImageUrl"`
 	Location             *LatLng `json:"location"`
+	// Category / FixedLocalHour are filled by the API handler (not Campfire).
+	Category       string `json:"category,omitempty"`
+	FixedLocalHour bool   `json:"fixedLocalHour,omitempty"`
 }
 
 type LatLng struct {

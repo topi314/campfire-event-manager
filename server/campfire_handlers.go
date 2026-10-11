@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/topi314/campfire-event-manager/internal/eventcategory"
 	"github.com/topi314/campfire-event-manager/server/campfire"
 )
 
@@ -82,6 +83,11 @@ func (s *Server) campfireLiveEvents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	for i := range events {
+		cat := eventcategory.FromName(events[i].EventName)
+		events[i].Category = cat
+		events[i].FixedLocalHour = eventcategory.IsFixedLocalHour(cat)
 	}
 	writeJSON(w, http.StatusOK, events)
 }

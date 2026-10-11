@@ -108,6 +108,10 @@ export type LiveEvent = {
   localEndTime?: string;
   modalHeadingImageUrl?: string;
   location?: { latitude: number; longitude: number };
+  /** Set by our API from the event name (not from Campfire). */
+  category?: string;
+  /** Set by our API for Raid Hour / Spotlight Hour / Max Monday. */
+  fixedLocalHour?: boolean;
 };
 
 export type ClubMember = {

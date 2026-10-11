@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/topi314/campfire-event-manager/frontend"
+	"github.com/topi314/campfire-event-manager/internal/eventcategory"
 	"github.com/topi314/campfire-event-manager/server/auth"
 	"github.com/topi314/campfire-event-manager/server/campfire"
 	"github.com/topi314/campfire-event-manager/server/database"
@@ -133,7 +134,8 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) clientConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"cartoApiKey":    s.cfg.Basemaps.CartoKey(),
-		"bugHexeUserIds": s.cfg.DiscordAuth.BugHexe,
+		"cartoApiKey":      s.cfg.Basemaps.CartoKey(),
+		"bugHexeUserIds":   s.cfg.DiscordAuth.BugHexe,
+		"eventCategories":  eventcategory.ClientCatalog(),
 	})
 }

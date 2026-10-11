@@ -15,6 +15,8 @@ import {
   formatLocalDateTime,
   instantToLocalInput,
   isMeetupDurationValid,
+  isMeetupWithinLiveEventWindow,
+  liveEventWindowBounds,
   MIN_MEETUP_DURATION_MINUTES,
   parseLocalDateTime,
 } from "~/utils/datetime";
@@ -30,11 +32,6 @@ import {
   type PlaceholderDef,
 } from "~/utils/placeholders";
 import { DEFAULT_LOCATION_JITTER_METERS, parseCampfireLocation } from "~/utils/location";
-import {
-  categoryFromLiveEventName,
-  categoryMatchOrder,
-  isFixedLocalHourCategory,
-} from "~/utils/eventCategory";
 import { buildMeetupBodyFromDraft, parseDraftPayload } from "~/utils/drafts";
 import { fetchMeetupSchedule } from "~/utils/meetupSchedule";
 import { isCampfireTokenError } from "~/composables/useSessionToken";
@@ -43,6 +40,9 @@ import {
   isTemplateLanguageCode,
   type TemplateLanguageCode,
 } from "~/utils/languages";
+
+const { matchOrder: categoryMatchOrder, fixedLocalHour: isFixedLocalHourCategory } =
+  useEventCategories();
 
 const props = defineProps<{
   /** When set, load this club draft into the create form. */
@@ -105,15 +105,18 @@ const draftReady = ref(false);
 /** True once the user changes template or meetup fields after auto-fill. */
 const detailsTouched = ref(false);
 /** Suppress detailsTouched while applying live-event / template selections. */
+let programmaticDepth = 0;
 let programmaticUpdate = false;
 
 function beginProgrammaticUpdate() {
+  programmaticDepth++;
   programmaticUpdate = true;
 }
 
 function endProgrammaticUpdate() {
   nextTick(() => {
-    programmaticUpdate = false;
+    programmaticDepth = Math.max(0, programmaticDepth - 1);
+    if (programmaticDepth === 0) programmaticUpdate = false;
   });
 }
 
@@ -249,10 +252,8 @@ const selectedLiveEvent = computed(() =>
   liveEvents.value.find((e) => e.id === selectedLiveEventId.value) || null,
 );
 
-const liveEventCategory = computed(() =>
-  selectedLiveEvent.value
-    ? categoryFromLiveEventName(selectedLiveEvent.value.eventName)
-    : "",
+const liveEventCategory = computed(
+  () => selectedLiveEvent.value?.category?.trim() || "",
 );
 
 /** Templates: prefer category match when a live event is selected; always list all. */
@@ -491,16 +492,22 @@ async function refreshEventPokemonResolve() {
     );
     if (seq !== resolveSeq) return;
     eventPokemonResolved.value = res.values || {};
-    for (const key of eventPokemonNameDefs.value) {
-      if (eventPokemonDirty.value.has(normalizePlaceholderKey(key))) continue;
-      let fill = "";
-      for (const [k, val] of Object.entries(res.values || {})) {
-        if (normalizePlaceholderKey(k) === normalizePlaceholderKey(key)) {
-          fill = val;
-          break;
+    // Auto-fill must not flip detailsTouched (blocks live-event template re-select).
+    beginProgrammaticUpdate();
+    try {
+      for (const key of eventPokemonNameDefs.value) {
+        if (eventPokemonDirty.value.has(normalizePlaceholderKey(key))) continue;
+        let fill = "";
+        for (const [k, val] of Object.entries(res.values || {})) {
+          if (normalizePlaceholderKey(k) === normalizePlaceholderKey(key)) {
+            fill = val;
+            break;
+          }
         }
+        placeholderValues[key] = fill;
       }
-      placeholderValues[key] = fill;
+    } finally {
+      endProgrammaticUpdate();
     }
   } catch {
     if (seq !== resolveSeq) return;
@@ -548,7 +555,7 @@ function validatePlaceholdersForPost(): string | null {
     }
   }
   if (postLengthBlocked.value) {
-    return `Title must be at most ${MAX_MEETUP_TITLE} characters and description at most ${MAX_MEETUP_DETAILS} after placeholders`;
+    return `Too long after placeholders (title ≤ ${MAX_MEETUP_TITLE}, details ≤ ${MAX_MEETUP_DETAILS})`;
   }
   return null;
 }
@@ -571,17 +578,22 @@ watch(
   eventPokemonNameDefs,
   (keys) => {
     const resolved = eventPokemonResolved.value;
-    for (const key of keys) {
-      if (eventPokemonDirty.value.has(normalizePlaceholderKey(key))) continue;
-      if ((placeholderValues[key] ?? "").trim()) continue;
-      let fill = "";
-      for (const [k, val] of Object.entries(resolved)) {
-        if (normalizePlaceholderKey(k) === normalizePlaceholderKey(key)) {
-          fill = val;
-          break;
+    beginProgrammaticUpdate();
+    try {
+      for (const key of keys) {
+        if (eventPokemonDirty.value.has(normalizePlaceholderKey(key))) continue;
+        if ((placeholderValues[key] ?? "").trim()) continue;
+        let fill = "";
+        for (const [k, val] of Object.entries(resolved)) {
+          if (normalizePlaceholderKey(k) === normalizePlaceholderKey(key)) {
+            fill = val;
+            break;
+          }
         }
+        if (fill) placeholderValues[key] = fill;
       }
-      if (fill) placeholderValues[key] = fill;
+    } finally {
+      endProgrammaticUpdate();
     }
     if (
       keys.length &&
@@ -802,6 +814,7 @@ watch(preferredClubId, (preferred) => {
 });
 
 watch(selectedLiveEventId, () => {
+  // Draft/edit restores set the id under programmaticUpdate — don't overwrite them.
   if (programmaticUpdate || mode.value === "edit" || editingDraftId.value != null) return;
 
   // Until the user edits, keep template in sync with the live event category.
@@ -814,6 +827,8 @@ watch(selectedLiveEventId, () => {
       selectedTemplateId.value = "";
       applyMeetupLanguage(undefined, { force: true });
     }
+    // After template id updates so custom placeholder keys match the new payload.
+    resetPlaceholders();
     // Re-apply even when the template id is unchanged (new event times / name).
     void hydrateDraft().finally(() => endProgrammaticUpdate());
     return;
@@ -936,6 +951,35 @@ const minEndTime = computed(() =>
   draft.eventTime ? ensureMinMeetupEnd(draft.eventTime, null) : "",
 );
 
+const selectedLiveEventWindowLabel = computed(() => {
+  const ev = selectedLiveEvent.value;
+  if (!ev) return "";
+  const start = instantToLocalInput(ev.startTimestamp, timeZone.value);
+  const end = instantToLocalInput(ev.endTimestamp, timeZone.value);
+  if (!start || !end) return "";
+  return `${formatLocalDateTime(start)} - ${formatLocalDateTime(end)}`;
+});
+
+const liveEventWindowError = computed(() => {
+  const ev = selectedLiveEvent.value;
+  if (!ev || !draft.eventTime || !draft.eventEndTime) return "";
+  if (!liveEventWindowBounds(ev)) return "";
+  if (
+    isMeetupWithinLiveEventWindow(
+      draft.eventTime,
+      draft.eventEndTime,
+      ev,
+      timeZone.value,
+    )
+  ) {
+    return "";
+  }
+  const window = selectedLiveEventWindowLabel.value;
+  return window
+    ? `Outside live event window (${window})`
+    : "Outside live event window";
+});
+
 function validateDraft(): string | null {
   if (!token.value) return "missing-token";
   if (!selectedClubId.value) return "Pick a club";
@@ -950,6 +994,7 @@ function validateDraft(): string | null {
   if (!isMeetupDurationValid(draft.eventTime, draft.eventEndTime)) {
     return `End must be at least ${MIN_MEETUP_DURATION_MINUTES} minutes after start`;
   }
+  if (liveEventWindowError.value) return liveEventWindowError.value;
   return null;
 }
 
@@ -1090,10 +1135,12 @@ async function loadDraftFromClubEvent(ev: ClubEvent) {
   const end = isoToLocalInput(ev.eventEndTime);
   const live =
     liveEvents.value.find((e) => e.id === (ev.campfireLiveEventId || "")) || null;
-  const category = live ? categoryFromLiveEventName(live.eventName) : "";
+  const fixedHour =
+    live?.fixedLocalHour === true ||
+    isFixedLocalHourCategory(live?.category || "");
   // Raid Hour / Spotlight / Max Monday are always 18:00–19:00 local. Campfire
   // may store the worldwide UTC window instead — keep the calendar day, fix clocks.
-  if (isFixedLocalHourCategory(category)) {
+  if (fixedHour) {
     const times = await resolveSchedule({
       liveEvent: live,
       date: start ? start.slice(0, 10) : undefined,
@@ -1112,7 +1159,10 @@ async function loadDraftFromClubEvent(ev: ClubEvent) {
 function clubEventOptionLabel(ev: ClubEvent) {
   let local = isoToLocalInput(ev.eventTime);
   const live = liveEvents.value.find((e) => e.id === (ev.campfireLiveEventId || ""));
-  if (live && isFixedLocalHourCategory(categoryFromLiveEventName(live.eventName)) && local) {
+  const fixedHour =
+    live?.fixedLocalHour === true ||
+    isFixedLocalHourCategory(live?.category || "");
+  if (live && fixedHour && local) {
     // Show the real meetup hour, not Campfire's worldwide window.
     local = `${local.slice(0, 10)}T18:00`;
   }
@@ -1607,7 +1657,7 @@ function templateOptionLabel(t: MeetupTemplate) {
         <div class="placeholder-fill placeholder-grid">
           <template v-if="eventPokemonNameDefs.length">
             <p class="hint muted" style="grid-column: 1 / -1; margin: 0">
-              From live event (editable):
+              Event Pokémon
             </p>
             <div
               v-for="key in eventPokemonNameDefs"
@@ -1629,7 +1679,7 @@ function templateOptionLabel(t: MeetupTemplate) {
           </template>
           <template v-if="placeholderDefs.length">
             <p class="hint muted" style="grid-column: 1 / -1; margin: 0">
-              Custom fields:
+              Custom
             </p>
             <div v-for="d in placeholderDefs" :key="d.key" class="field ph-item">
               <label :for="`ph-${d.key}`">
@@ -1643,9 +1693,6 @@ function templateOptionLabel(t: MeetupTemplate) {
                 :required="placeholderRequired(d)"
                 :placeholder="d.default || d.label || humanizePlaceholderKey(d.key)"
               />
-              <p v-if="d.default && !placeholderRequired(d)" class="hint muted">
-                Default: {{ d.default }}
-              </p>
             </div>
           </template>
         </div>
@@ -1720,8 +1767,8 @@ function templateOptionLabel(t: MeetupTemplate) {
             />
             <PlaceholderHelp compact />
             <p v-if="postLengthBlocked" class="error" style="margin-top: 0.35rem">
-              Resolved title must be ≤ {{ MAX_MEETUP_TITLE }} characters and description ≤
-              {{ MAX_MEETUP_DETAILS }} to post (drafts can still be saved).
+              Too long after placeholders (title ≤ {{ MAX_MEETUP_TITLE }}, details ≤
+              {{ MAX_MEETUP_DETAILS }})
             </p>
           </div>
 
@@ -1742,15 +1789,13 @@ function templateOptionLabel(t: MeetupTemplate) {
             </div>
           </div>
           <p class="hint muted" style="margin-top: -0.35rem">
-            Times are wall-clock values in your Settings timezone ({{ timeZone }}) and sent to
-            Campfire as UTC. Meetups must be at least {{ MIN_MEETUP_DURATION_MINUTES }} minutes
-            long.
-            <template v-if="selectedLiveEvent">
-              Template clocks use the live event’s local calendar day.
+            {{ timeZone }}; min {{ MIN_MEETUP_DURATION_MINUTES }} min
+            <template v-if="selectedLiveEvent && selectedLiveEventWindowLabel">
+              · must be within {{ selectedLiveEventWindowLabel }}
             </template>
-            <template v-else>
-              With no live event linked, template clocks use today.
-            </template>
+          </p>
+          <p v-if="liveEventWindowError" class="error" style="margin-top: 0.35rem">
+            {{ liveEventWindowError }}
           </p>
 
           <div class="field">
@@ -1808,7 +1853,7 @@ function templateOptionLabel(t: MeetupTemplate) {
               </LocationPicker>
             </ClientOnly>
             <p v-if="mode === 'create'" class="hint muted">
-              Jitter randomly offsets each meetup within this many meters of the pin so markers don’t stack. Use 0 for the exact spot.
+              Jitter: random offset so pins don’t stack (0 = exact)
             </p>
             <div class="field" style="margin-top: 0.75rem; margin-bottom: 0">
               <label for="address">Address</label>
@@ -1818,10 +1863,9 @@ function templateOptionLabel(t: MeetupTemplate) {
                 type="text"
                 :readonly="textViewMode === 'preview'"
                 :class="{ 'preview-field': textViewMode === 'preview' }"
-                placeholder="Optional — filled from place search"
+                placeholder="Optional — from place search"
                 @input="onAddressInput"
               />
-              <p class="hint muted">Shown on the meetup; place search fills this when you pick a result.</p>
             </div>
           </div>
         </div>

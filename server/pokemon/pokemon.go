@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"unicode"
+
+	"github.com/topi314/campfire-event-manager/internal/eventcategory"
 )
 
 //go:embed pokemon.json
@@ -39,8 +42,11 @@ var ExtractableCategories = map[string]struct{}{
 	"Community Day Classic": {},
 	"Raid Hour":             {},
 	"Raid Day":              {},
+	"Super Mega Raid Day":   {},
+	"Shadow Raid Day":       {},
 	"Spotlight Hour":        {},
 	"Research Day":          {},
+	"Catch Mastery":         {},
 	"Hatch Day":             {},
 	"Max Monday":            {},
 	"Max Battle Day":        {},
@@ -249,6 +255,9 @@ func lookupNorm(n string) *Species {
 	return byNorm[n]
 }
 
+// trailingDayRE strips leftover "Day 1" / "(Day 2)" / trailing indexes after category phrases.
+var trailingDayRE = regexp.MustCompile(`(?i)\s*\(?Day\s*\d+\)?\s*$|\s+\d+\s*$`)
+
 // CategoryPatterns maps category → phrases to strip from titles (longest first preferred by caller).
 func CategoryPatterns(category string, all map[string][]string) []string {
 	patterns := append([]string{}, all[category]...)
@@ -273,22 +282,37 @@ func ExtractSpecies(liveEventName, category string, categoryPatterns map[string]
 		return nil
 	}
 
+	phrases := eventcategory.ExtractPatterns(category)
+	if len(phrases) == 0 {
+		phrases = CategoryPatterns(category, categoryPatterns)
+	}
+
 	remainder := title
-	lower := strings.ToLower(remainder)
-	for _, phrase := range CategoryPatterns(category, categoryPatterns) {
-		p := strings.ToLower(strings.TrimSpace(phrase))
-		if p == "" {
-			continue
+	for {
+		lower := strings.ToLower(remainder)
+		stripped := false
+		for _, phrase := range phrases {
+			p := strings.ToLower(strings.TrimSpace(phrase))
+			if p == "" {
+				continue
+			}
+			if idx := strings.Index(lower, p); idx >= 0 {
+				// Use the matched span length from the lower haystack; phrase may differ in case.
+				end := idx + len(p)
+				remainder = strings.TrimSpace(remainder[:idx] + remainder[end:])
+				stripped = true
+				break
+			}
 		}
-		if idx := strings.Index(lower, p); idx >= 0 {
-			remainder = strings.TrimSpace(remainder[:idx] + remainder[idx+len(phrase):])
-			lower = strings.ToLower(remainder)
-			break // strip one category phrase
+		if !stripped {
+			break
 		}
 	}
 
 	remainder = strings.TrimSpace(remainder)
 	remainder = strings.TrimLeft(remainder, ":—–-")
+	remainder = strings.TrimSpace(remainder)
+	remainder = trailingDayRE.ReplaceAllString(remainder, "")
 	remainder = strings.TrimSpace(remainder)
 	if remainder == "" {
 		return nil

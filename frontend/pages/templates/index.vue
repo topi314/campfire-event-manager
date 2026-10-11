@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { MeetupPayload, MeetupTemplate } from "~/types";
 import { formatInstant } from "~/utils/datetime";
-import { TEMPLATE_CATEGORY_OPTIONS } from "~/utils/eventCategory";
 import {
   TEMPLATE_LANGUAGES,
   templateLanguageLabel,
 } from "~/utils/languages";
 import { coverImageSrc } from "~/utils/covers";
+
+const { options: TEMPLATE_CATEGORY_OPTIONS } = useEventCategories();
 
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();

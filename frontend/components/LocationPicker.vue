@@ -633,7 +633,7 @@ function onDocClick(ev: MouseEvent) {
       <slot name="meta" />
     </div>
     <p v-if="!readonly" class="hint muted">
-      Search for a place, click the map, or drag the marker. You can also type or paste coordinates.
+      Search, click map, drag pin, or paste coords
     </p>
     <p v-if="coordsError" class="error coords-error">{{ coordsError }}</p>
   </div>
@@ -802,5 +802,31 @@ function onDocClick(ev: MouseEvent) {
   background: var(--bg-elevated);
   color: var(--muted);
   cursor: default;
+}
+:deep(.leaflet-control-attribution) {
+  margin: 0 0.4rem 0.4rem 0;
+  padding: 0.2rem 0.45rem;
+  max-width: min(100%, 18rem);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  color: var(--muted);
+  font: 0.65rem/1.35 var(--font, inherit);
+  letter-spacing: 0.01em;
+  box-shadow: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+:deep(.leaflet-control-attribution a) {
+  color: var(--accent, var(--text));
+  text-decoration: none;
+}
+:deep(.leaflet-control-attribution a:hover),
+:deep(.leaflet-control-attribution a:focus-visible) {
+  color: var(--accent-hover, var(--accent, var(--text)));
+  text-decoration: underline;
+}
+:deep(.leaflet-control-attribution svg) {
+  display: none;
 }
 </style>

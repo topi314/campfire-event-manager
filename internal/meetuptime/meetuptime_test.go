@@ -49,6 +49,71 @@ func TestResolveTemplateClocksOnLiveDay(t *testing.T) {
 	}
 }
 
+func TestResolveIgnoresLiveLocalTimesWhenTemplateEmpty(t *testing.T) {
+	// Live clocks are skipped; Community Day falls back to category defaults (14:00–17:00).
+	sched, err := Resolve(Input{
+		TimeZone: "Europe/Berlin",
+		Live: &LiveEventFields{
+			EventName:      "Community Day: Squirtle",
+			StartTimestamp: "2026-10-11T07:00:00.000Z",
+			EndTimestamp:   "2026-10-11T10:00:00.000Z",
+			LocalStartTime: "2026-10-11T11:00:00.000",
+			LocalEndTime:   "2026-10-11T14:00:00.000",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sched.EventTime != "2026-10-11T14:00" {
+		t.Fatalf("start=%q want 2026-10-11T14:00", sched.EventTime)
+	}
+	if sched.EventEndTime != "2026-10-11T17:00" {
+		t.Fatalf("end=%q want 2026-10-11T17:00", sched.EventEndTime)
+	}
+}
+
+func TestResolveIgnoresLiveTimestampsWhenNoTemplate(t *testing.T) {
+	sched, err := Resolve(Input{
+		TimeZone: "Europe/Berlin",
+		Live: &LiveEventFields{
+			EventName:      "Raid Day: Falinks",
+			StartTimestamp: "2026-10-11T07:00:00.000Z",
+			EndTimestamp:   "2026-10-11T10:00:00.000Z",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sched.EventTime != "2026-10-11T14:00" {
+		t.Fatalf("start=%q want 2026-10-11T14:00 (category default)", sched.EventTime)
+	}
+	if sched.EventEndTime != "2026-10-11T17:00" {
+		t.Fatalf("end=%q want 2026-10-11T17:00 (category default)", sched.EventEndTime)
+	}
+}
+
+func TestResolveRaidHourKeepsDefaultsDespiteLocalTimes(t *testing.T) {
+	sched, err := Resolve(Input{
+		TimeZone: "Europe/Berlin",
+		Live: &LiveEventFields{
+			EventName:      "Raid Hour: Stuff",
+			StartTimestamp: "2026-10-02T04:00:00.000Z",
+			EndTimestamp:   "2026-10-02T05:00:00.000Z",
+			LocalStartTime: "2026-10-02T17:00:00.000",
+			LocalEndTime:   "2026-10-02T18:00:00.000",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sched.EventTime != "2026-10-02T18:00" {
+		t.Fatalf("start=%q want 18:00 category default", sched.EventTime)
+	}
+	if sched.EventEndTime != "2026-10-02T19:00" {
+		t.Fatalf("end=%q want 19:00 category default", sched.EventEndTime)
+	}
+}
+
 func TestWallToUTC(t *testing.T) {
 	got, err := WallToUTC("2026-10-02T18:00", "Europe/Berlin")
 	if err != nil {

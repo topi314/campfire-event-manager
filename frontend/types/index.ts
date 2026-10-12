@@ -6,6 +6,8 @@ export type DiscordUser = {
   admin: boolean;
   /** Saved IANA timezone. Null until this account has chosen one. */
   timeZone?: string | null;
+  /** Saved default language (ISO 639-1). Null until this account has chosen one. */
+  language?: string | null;
 };
 
 export type MeetupTemplate = {

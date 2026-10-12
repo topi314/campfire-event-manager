@@ -24,4 +24,5 @@ type DiscordUser struct {
 	DiscordUserAvatarUrl   string
 	DiscordUserImportedAt  pgtype.Timestamp
 	DiscordUserTimezone    pgtype.Text
+	DiscordUserLanguage    pgtype.Text
 }

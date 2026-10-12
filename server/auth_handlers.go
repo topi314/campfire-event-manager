@@ -18,6 +18,7 @@ import (
 	"github.com/topi314/campfire-event-manager/server/auth"
 	"github.com/topi314/campfire-event-manager/server/database"
 	"github.com/topi314/campfire-event-manager/server/database/dbsqlc"
+	"github.com/topi314/campfire-event-manager/server/languages"
 )
 
 func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
@@ -237,33 +238,61 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 		"avatarUrl":   session.DiscordUser.AvatarURL,
 		"admin":       session.Session.Admin,
 		"timeZone":    session.DiscordUser.TimeZone,
+		"language":    session.DiscordUser.Language,
 	})
 }
 
 func (s *Server) apiUpdateMe(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.GetSession(r)
 	var body struct {
-		TimeZone string `json:"timeZone"`
+		TimeZone *string `json:"timeZone"`
+		Language *string `json:"language"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	tz := strings.TrimSpace(body.TimeZone)
-	if !validTimeZone(tz) {
-		writeError(w, http.StatusBadRequest, "invalid timezone")
+	if body.TimeZone == nil && body.Language == nil {
+		writeError(w, http.StatusBadRequest, "timeZone or language required")
 		return
 	}
-	n, err := s.db.SetDiscordUserTimeZone(r.Context(), dbsqlc.SetDiscordUserTimeZoneParams{
-		DiscordUserID:       session.DiscordUser.ID,
-		DiscordUserTimezone: database.Text(tz),
-	})
-	if err != nil || n == 0 {
-		slog.ErrorContext(r.Context(), "failed to save timezone", slog.Any("error", err))
-		writeError(w, http.StatusInternalServerError, "failed to save timezone")
-		return
+
+	out := map[string]string{}
+	if body.TimeZone != nil {
+		tz := strings.TrimSpace(*body.TimeZone)
+		if !validTimeZone(tz) {
+			writeError(w, http.StatusBadRequest, "invalid timezone")
+			return
+		}
+		n, err := s.db.SetDiscordUserTimeZone(r.Context(), dbsqlc.SetDiscordUserTimeZoneParams{
+			DiscordUserID:       session.DiscordUser.ID,
+			DiscordUserTimezone: database.Text(tz),
+		})
+		if err != nil || n == 0 {
+			slog.ErrorContext(r.Context(), "failed to save timezone", slog.Any("error", err))
+			writeError(w, http.StatusInternalServerError, "failed to save timezone")
+			return
+		}
+		out["timeZone"] = tz
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"timeZone": tz})
+	if body.Language != nil {
+		lang := languages.Normalize(*body.Language)
+		if lang == "" {
+			writeError(w, http.StatusBadRequest, "invalid language")
+			return
+		}
+		n, err := s.db.SetDiscordUserLanguage(r.Context(), dbsqlc.SetDiscordUserLanguageParams{
+			DiscordUserID:       session.DiscordUser.ID,
+			DiscordUserLanguage: database.Text(lang),
+		})
+		if err != nil || n == 0 {
+			slog.ErrorContext(r.Context(), "failed to save language", slog.Any("error", err))
+			writeError(w, http.StatusInternalServerError, "failed to save language")
+			return
+		}
+		out["language"] = lang
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func validTimeZone(tz string) bool {

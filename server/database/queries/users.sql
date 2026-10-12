@@ -16,6 +16,11 @@ UPDATE discord_users
 SET discord_user_timezone = $2
 WHERE discord_user_id = $1;
 
+-- name: SetDiscordUserLanguage :execrows
+UPDATE discord_users
+SET discord_user_language = $2
+WHERE discord_user_id = $1;
+
 -- name: GetDiscordUser :one
 SELECT
     discord_user_id,
@@ -23,6 +28,7 @@ SELECT
     discord_user_display_name,
     discord_user_avatar_url,
     discord_user_imported_at,
-    discord_user_timezone
+    discord_user_timezone,
+    discord_user_language
 FROM discord_users
 WHERE discord_user_id = $1;

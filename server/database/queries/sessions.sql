@@ -10,7 +10,8 @@ SELECT
     u.discord_user_display_name,
     u.discord_user_avatar_url,
     u.discord_user_imported_at,
-    u.discord_user_timezone
+    u.discord_user_timezone,
+    u.discord_user_language
 FROM sessions s
 LEFT JOIN discord_users u ON s.session_user_id = u.discord_user_id
 WHERE s.session_id = $1;

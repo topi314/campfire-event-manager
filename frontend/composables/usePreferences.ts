@@ -179,12 +179,25 @@ export function usePreferences() {
     writeStored(next);
   }
 
+  function rememberLanguage(userId: string, code: TemplateLanguageCode) {
+    const next = snapshot({
+      preferredLanguageByUser: {
+        ...(stored.value.preferredLanguageByUser || {}),
+        [userId]: code,
+      },
+    });
+    stored.value = next;
+    writeStored(next);
+  }
+
   /** Saved default language, or browser guess when unset. */
   const preferredLanguage = computed<TemplateLanguageCode>(() => {
     const id = user.value?.id;
     if (id) {
       const saved = stored.value.preferredLanguageByUser?.[id] || "";
       if (isTemplateLanguageCode(saved)) return saved;
+      const fromAccount = user.value?.language || "";
+      if (isTemplateLanguageCode(fromAccount)) return fromAccount;
     }
     return guessTemplateLanguage();
   });
@@ -192,20 +205,51 @@ export function usePreferences() {
   const hasLanguagePreference = computed(() => {
     const id = user.value?.id;
     if (!id) return false;
-    return isTemplateLanguageCode(stored.value.preferredLanguageByUser?.[id] || "");
+    return !!(
+      isTemplateLanguageCode(stored.value.preferredLanguageByUser?.[id] || "") ||
+      isTemplateLanguageCode(user.value?.language || "")
+    );
   });
+
+  const languagePersistInflight = useState<Promise<void> | null>(
+    "languagePersistInflight",
+    () => null,
+  );
+
+  async function persistLanguage(code: TemplateLanguageCode) {
+    const current = user.value;
+    if (!current?.id) return;
+    if ((current.language || "").trim() === code) return;
+    if (languagePersistInflight.value) return languagePersistInflight.value;
+
+    const run = (async () => {
+      try {
+        const latest = user.value;
+        if (!latest?.id || (latest.language || "").trim() === code) return;
+        await api("/api/me", {
+          method: "PATCH",
+          body: JSON.stringify({ language: code }),
+        });
+        if (user.value?.id === latest.id) {
+          user.value = { ...user.value, language: code };
+        }
+      } finally {
+        languagePersistInflight.value = null;
+      }
+    })();
+    languagePersistInflight.value = run;
+    return run;
+  }
 
   function setPreferredLanguage(code: string) {
     const id = user.value?.id;
     if (!id) return;
-    const nextMap = { ...(stored.value.preferredLanguageByUser || {}) };
-    const resolved = isTemplateLanguageCode(code) ? code : "";
-    if (resolved) nextMap[id] = resolved;
-    else delete nextMap[id];
-    const next = snapshot({ preferredLanguageByUser: nextMap });
-    stored.value = next;
-    writeStored(next);
+    const resolved = isTemplateLanguageCode(code) ? code : guessTemplateLanguage();
+    rememberLanguage(id, resolved);
     languagePromptOpen.value = false;
+    void persistLanguage(resolved).catch(() => {
+      /* Retried the next time this account loads. */
+    });
   }
 
   const bugHexeEnabled = computed(() => {
@@ -314,16 +358,30 @@ export function usePreferences() {
     }
   }
 
-  /** Prompt when this account has never saved a default language. */
+  /**
+   * Prompt only when this account has never saved a default language.
+   * A choice already stored for the account (server or this browser) is reused.
+   */
   function maybePromptLanguage() {
     if (!import.meta.client) return;
     const current = user.value;
     if (!current?.id) return;
     if (timezonePromptOpen.value) return;
-    if (hasLanguagePreference.value) {
+
+    const accountLang = (current.language || "").trim();
+    if (isTemplateLanguageCode(accountLang)) {
+      rememberLanguage(current.id, accountLang);
       languagePromptOpen.value = false;
       return;
     }
+
+    const local = stored.value.preferredLanguageByUser?.[current.id] || "";
+    if (isTemplateLanguageCode(local)) {
+      languagePromptOpen.value = false;
+      void persistLanguage(local).catch(() => {});
+      return;
+    }
+
     languagePromptOpen.value = true;
   }
 

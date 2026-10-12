@@ -9,6 +9,7 @@ type DiscordUser struct {
 	AvatarURL   string    `json:"avatarUrl"`
 	ImportedAt  time.Time `json:"importedAt"`
 	TimeZone    *string   `json:"timeZone,omitempty"`
+	Language    *string   `json:"language,omitempty"`
 }
 
 type Session struct {

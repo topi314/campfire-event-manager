@@ -18,7 +18,8 @@ SELECT
     discord_user_display_name,
     discord_user_avatar_url,
     discord_user_imported_at,
-    discord_user_timezone
+    discord_user_timezone,
+    discord_user_language
 FROM discord_users
 WHERE discord_user_id = $1
 `
@@ -33,8 +34,28 @@ func (q *Queries) GetDiscordUser(ctx context.Context, discordUserID string) (Dis
 		&i.DiscordUserAvatarUrl,
 		&i.DiscordUserImportedAt,
 		&i.DiscordUserTimezone,
+		&i.DiscordUserLanguage,
 	)
 	return i, err
+}
+
+const setDiscordUserLanguage = `-- name: SetDiscordUserLanguage :execrows
+UPDATE discord_users
+SET discord_user_language = $2
+WHERE discord_user_id = $1
+`
+
+type SetDiscordUserLanguageParams struct {
+	DiscordUserID       string
+	DiscordUserLanguage pgtype.Text
+}
+
+func (q *Queries) SetDiscordUserLanguage(ctx context.Context, arg SetDiscordUserLanguageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setDiscordUserLanguage, arg.DiscordUserID, arg.DiscordUserLanguage)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setDiscordUserTimeZone = `-- name: SetDiscordUserTimeZone :execrows

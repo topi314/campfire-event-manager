@@ -115,6 +115,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /api/campfire/meetups", s.requireAuth(s.campfireCreateMeetup))
 	mux.HandleFunc("PUT /api/campfire/meetups/{eventId}", s.requireAuth(s.campfireEditMeetup))
 	mux.HandleFunc("DELETE /api/campfire/meetups/{eventId}", s.requireAuth(s.campfireDeleteMeetup))
+	mux.HandleFunc("POST /api/campfire/meetups/{eventId}/share-link", s.requireAuth(s.campfireMeetupShareLink))
 
 	mux.HandleFunc("POST /api/covers", s.requireAuth(s.uploadCover))
 	mux.HandleFunc("GET /api/covers/{id}", s.requireAuth(s.getCover))

@@ -3,6 +3,7 @@ export type IconName =
   | "post"
   | "edit"
   | "trash"
+  | "share"
   | "publish"
   | "unpublish"
   | "export"
@@ -67,6 +68,25 @@ defineProps<{
         stroke="currentColor"
         stroke-width="1.75"
         stroke-linejoin="round"
+      />
+    </template>
+
+    <!-- Share / link -->
+    <template v-else-if="name === 'share'">
+      <circle cx="18" cy="5" r="2.25" stroke="currentColor" stroke-width="1.75" />
+      <circle cx="6" cy="12" r="2.25" stroke="currentColor" stroke-width="1.75" />
+      <circle cx="18" cy="19" r="2.25" stroke="currentColor" stroke-width="1.75" />
+      <path
+        d="m8.1 10.8 7.8-4.6"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+      />
+      <path
+        d="m8.1 13.2 7.8 4.6"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
       />
     </template>
 

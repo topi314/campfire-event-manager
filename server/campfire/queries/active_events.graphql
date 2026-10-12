@@ -5,18 +5,6 @@ query ActiveEvents_Query(
 ) {
   club(id: $clubId) {
     id
-    clubDiscordSettings {
-      discordGuildId
-      discordChannelId
-      discordGuild {
-        id
-        channels {
-          id
-          name
-          type
-        }
-      }
-    }
     activeFeed(first: $first, after: $after) {
       edges {
         node {

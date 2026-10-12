@@ -154,7 +154,6 @@ func (s *Server) campfireClubEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"events":      res.Events,
-		"discord":     res.Discord,
 		"endCursor":   res.EndCursor,
 		"hasNextPage": res.HasNextPage,
 	})
@@ -465,4 +464,31 @@ func (s *Server) campfireDeleteMeetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "id": eventID})
+}
+
+func (s *Server) campfireMeetupShareLink(w http.ResponseWriter, r *http.Request) {
+	token, ok := s.requireCampfireToken(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "missing Campfire Authorization Bearer token")
+		return
+	}
+	eventID := strings.TrimSpace(r.PathValue("eventId"))
+	if eventID == "" {
+		writeError(w, http.StatusBadRequest, "eventId required")
+		return
+	}
+	shareURL, err := s.campfire.CreateEventLink(r.Context(), token, eventID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	shortID := campfire.ShortIDFromShareURL(shareURL)
+	if shortID == "" {
+		writeError(w, http.StatusBadGateway, "createLink returned url without short id")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"url":     shareURL,
+		"shortId": shortID,
+	})
 }

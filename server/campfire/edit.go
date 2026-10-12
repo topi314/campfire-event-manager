@@ -35,9 +35,8 @@ type ClubEvent struct {
 
 type activeEventsResp struct {
 	Club struct {
-		ID                  string                       `json:"id"`
-		ClubDiscordSettings *graphqlClubDiscordSettings  `json:"clubDiscordSettings"`
-		ActiveFeed          struct {
+		ID         string `json:"id"`
+		ActiveFeed struct {
 			Edges []struct {
 				Node   json.RawMessage `json:"node"`
 				Cursor string          `json:"cursor"`
@@ -55,20 +54,18 @@ type activeFeedNode struct {
 	ClubEvent
 }
 
-// ActiveEventsResult is one page of club meetups plus Discord settings for that club.
+// ActiveEventsResult is one page of club meetups.
 type ActiveEventsResult struct {
 	Events      []ClubEvent
-	Discord     ClubDiscordSettings
 	EndCursor   string
 	HasNextPage bool
 }
 
-// ActiveEvents returns upcoming/ongoing meetups for a club (one page),
-// together with that club's Discord channel settings (one GraphQL round-trip).
+// ActiveEvents returns upcoming/ongoing meetups for a club (one page).
+// Discord channels are loaded separately via DiscordSettings.
 func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first int, after string) (ActiveEventsResult, error) {
 	out := ActiveEventsResult{
-		Events:  []ClubEvent{},
-		Discord: ClubDiscordSettings{Channels: []DiscordChannel{}},
+		Events: []ClubEvent{},
 	}
 	if first <= 0 {
 		first = 50
@@ -81,7 +78,6 @@ func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first i
 	}, &resp); err != nil {
 		return out, err
 	}
-	out.Discord = parseClubDiscordSettings(resp.Club.ClubDiscordSettings)
 	out.Events = make([]ClubEvent, 0, len(resp.Club.ActiveFeed.Edges))
 	for _, e := range resp.Club.ActiveFeed.Edges {
 		var node activeFeedNode

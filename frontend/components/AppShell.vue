@@ -54,6 +54,7 @@ watch(token, async (t, prev) => {
           <div class="nav-group">
             <NuxtLink to="/create">Create</NuxtLink>
             <NuxtLink to="/create/drafts">Drafts</NuxtLink>
+            <NuxtLink to="/events">Events</NuxtLink>
           </div>
           <div class="nav-group">
             <NuxtLink to="/templates">My templates</NuxtLink>

@@ -45,6 +45,11 @@ import {
 const { matchOrder: categoryMatchOrder, fixedLocalHour: isFixedLocalHourCategory } =
   useEventCategories();
 
+const route = useRoute();
+const router = useRouter();
+/** True while applying /create?mode=edit&clubId=&eventId= from Events. */
+let editDeepLinkActive = false;
+
 const props = defineProps<{
   /** When set, load this club draft into the create form. */
   draftId?: number | null;
@@ -139,11 +144,23 @@ onMounted(async () => {
   await Promise.all([loadTemplates(), loadDrafts()]);
   if (token.value) await loadCampfire();
   await applyDraftRoute();
+  await applyEditDeepLink();
 });
 
 watch(token, async (t) => {
-  if (t) await loadCampfire();
+  if (t) {
+    await loadCampfire();
+    await applyEditDeepLink();
+  }
 });
+
+watch(
+  () => [route.query.mode, route.query.clubId, route.query.eventId] as const,
+  async () => {
+    if (!user.value || !token.value) return;
+    await applyEditDeepLink();
+  },
+);
 
 watch(
   () => props.draftId,
@@ -217,6 +234,10 @@ async function loadCampfire() {
 }
 
 function applyDefaultSelections() {
+  if (editDeepLinkActive) {
+    if (selectedClubId.value) void loadClubEvents();
+    return;
+  }
   if (clubs.value.length) {
     const clubOk = clubs.value.some((c) => c.id === selectedClubId.value);
     if (!clubOk) {
@@ -236,6 +257,38 @@ function applyDefaultSelections() {
     !liveEvents.value.some((e) => e.id === selectedLiveEventId.value)
   ) {
     selectedLiveEventId.value = "";
+  }
+}
+
+/** Open edit mode from /create?mode=edit&clubId=&eventId= (Events page). */
+async function applyEditDeepLink() {
+  const modeQ = route.query.mode;
+  const clubId = typeof route.query.clubId === "string" ? route.query.clubId.trim() : "";
+  const eventId = typeof route.query.eventId === "string" ? route.query.eventId.trim() : "";
+  if (modeQ !== "edit" || !clubId || !eventId) return;
+  if (!token.value || !clubs.value.length) return;
+  if (!clubs.value.some((c) => c.id === clubId)) {
+    error.value = "That club is not in your admin clubs.";
+    return;
+  }
+
+  editDeepLinkActive = true;
+  beginProgrammaticUpdate();
+  mode.value = "edit";
+  editingDraftId.value = null;
+  selectedClubId.value = clubId;
+  selectedEventId.value = "";
+  try {
+    await loadClubEvents({ force: true });
+    if (!clubEvents.value.some((e) => e.id === eventId)) {
+      error.value = "That meetup was not found in the club’s upcoming events.";
+      return;
+    }
+    selectedEventId.value = eventId;
+    await router.replace({ path: "/create", query: {} });
+  } finally {
+    endProgrammaticUpdate();
+    editDeepLinkActive = false;
   }
 }
 
@@ -1120,18 +1173,12 @@ async function loadClubEvents(opts?: { force?: boolean }) {
   clubEventsLoadedFor.value = clubId;
   const run = (async () => {
     try {
-      const res = await api<{ events: ClubEvent[]; discord?: ClubDiscordSettings }>(
+      const res = await api<{ events: ClubEvent[] }>(
         `/api/campfire/clubs/${encodeURIComponent(clubId)}/events?first=100`,
         { headers: authHeaders() },
       );
       if (selectedClubId.value !== clubId) return;
       clubEvents.value = res.events || [];
-      if (res.discord) {
-        const idx = clubs.value.findIndex((c) => c.id === clubId);
-        if (idx >= 0) {
-          clubs.value[idx] = { ...clubs.value[idx], discord: res.discord };
-        }
-      }
     } catch (e: any) {
       if (selectedClubId.value !== clubId) return;
       if (mode.value === "edit") {

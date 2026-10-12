@@ -36,3 +36,6 @@ var mutationEditEvent string
 
 //go:embed mutations/delete_event.graphql
 var mutationDeleteEvent string
+
+//go:embed mutations/create_link.graphql
+var mutationCreateLink string

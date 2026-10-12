@@ -22,6 +22,10 @@ type searchClubMembersVars struct {
 	Search string `json:"search"`
 }
 
+type discordChannelsVars struct {
+	ID string `json:"id"`
+}
+
 type liveEventsVars struct {
 	Input marketableCampfireLiveEventsInput `json:"input"`
 }

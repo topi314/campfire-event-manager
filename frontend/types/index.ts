@@ -62,6 +62,10 @@ export type MeetupPayload = {
   placeId?: string;
   coverPhotoUrl?: string;
   commentsPermissions?: string;
+  /** Optional Discord channel id for Campfire club Discord posts. */
+  discordChannelId?: string;
+  /** Club used to pick discordChannelId in the template editor (UI context). */
+  discordClubId?: string;
   /** Optional live-event category (campfire-tools style). Used to filter/auto-select templates. */
   category?: string;
   /** Preferred template start time-of-day (HH:mm). */
@@ -78,6 +82,19 @@ export type MeetupPayload = {
   inviteeIds?: string[];
   /** Optional labels/defaults for {{key}} tokens used in string fields. */
   placeholders?: TemplatePlaceholder[];
+};
+
+export type ClubDiscordChannel = {
+  id: string;
+  name: string;
+  type?: string;
+};
+
+export type ClubDiscordSettings = {
+  available: boolean;
+  discordGuildId?: string;
+  discordChannelId?: string;
+  channels: ClubDiscordChannel[];
 };
 
 export type CampfireMe = {
@@ -136,6 +153,7 @@ export type CreateMeetupInput = {
   campfireLiveEventId?: string;
   allInvited?: boolean;
   createdByCommunityAmbassador?: boolean;
+  discordChannelId?: string;
   inviteeIds?: string[];
   /** Context for server-side {{placeholder}} resolution. */
   clubName?: string;
@@ -161,6 +179,7 @@ export type EditMeetupInput = {
   campfireLiveEventId?: string;
   allInvited?: boolean;
   createdByCommunityAmbassador?: boolean;
+  discordChannelId?: string;
   hasEventPhotoChanged?: boolean;
   /** Context for server-side {{placeholder}} resolution. */
   clubName?: string;
@@ -185,6 +204,7 @@ export type ClubEvent = {
   allInvited?: boolean;
   createdByCommunityAmbassador?: boolean;
   campfireLiveEventId?: string;
+  discordChannelId?: string;
   clubId: string;
   creator?: {
     id: string;
@@ -212,6 +232,8 @@ export type DraftMeetupPayload = {
   commentsPermissions: string;
   allInvited: boolean;
   createdByCommunityAmbassador: boolean;
+  /** Optional Discord channel for Campfire Discord posts. */
+  discordChannelId?: string;
   locationJitterMeters: number;
   location: { lat: number; lng: number };
   /** Language used for eventPokemon translation when this draft was saved. */

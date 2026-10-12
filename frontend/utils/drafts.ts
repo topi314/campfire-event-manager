@@ -90,6 +90,9 @@ export function buildMeetupBodyFromDraft(
     campfireLiveEventId: item.liveEventId || undefined,
     allInvited: item.allInvited,
     createdByCommunityAmbassador: item.createdByCommunityAmbassador ?? true,
+    ...(item.discordChannelId?.trim()
+      ? { discordChannelId: item.discordChannelId.trim() }
+      : {}),
     clubName: item.clubName || undefined,
     liveEventName: item.liveEventName || undefined,
     category: item.category || undefined,

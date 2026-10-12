@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { MeetupPayload, TemplatePlaceholder } from "~/types";
+import type { Club, ClubDiscordSettings, MeetupPayload, TemplatePlaceholder } from "~/types";
 import type { LatLngPoint } from "~/components/LocationPicker.vue";
 import {
   extractPlaceholdersFromValue,
@@ -47,7 +47,46 @@ const emit = defineEmits<{
   cancel: [];
 }>();
 
-const { preferredLanguage } = usePreferences();
+const { api } = useApi();
+const { token, authHeaders } = useSessionToken();
+const { preferredLanguage, preferredClubId } = usePreferences();
+const clubs = ref<Club[]>([]);
+/** Club whose Discord channels feed the channel picker (not required for Campfire create). */
+const selectedDiscordClubId = ref("");
+
+function pickDefaultDiscordClubId(list: Club[], preferredStored?: string): string {
+  const preferred = (preferredStored || preferredClubId.value || "").trim();
+  if (preferred && list.some((c) => c.id === preferred)) return preferred;
+  return list[0]?.id || "";
+}
+
+async function loadClubsForDiscord() {
+  if (!token.value) {
+    clubs.value = [];
+    selectedDiscordClubId.value = "";
+    return;
+  }
+  try {
+    clubs.value = await api<Club[]>("/api/campfire/clubs", { headers: authHeaders() });
+    if (
+      !selectedDiscordClubId.value ||
+      !clubs.value.some((c) => c.id === selectedDiscordClubId.value)
+    ) {
+      selectedDiscordClubId.value = pickDefaultDiscordClubId(clubs.value);
+    }
+  } catch {
+    clubs.value = [];
+    selectedDiscordClubId.value = "";
+  }
+}
+
+onMounted(() => {
+  void loadClubsForDiscord();
+});
+
+watch(token, () => {
+  void loadClubsForDiscord();
+});
 
 const name = ref(props.templateName);
 const language = ref<TemplateLanguageCode>(
@@ -62,6 +101,7 @@ const form = reactive({
   address: "",
   coverPhotoUrl: "",
   commentsPermissions: "ORGANIZERS_ONLY",
+  discordChannelId: "",
   startTime: "",
   endTime: "",
   allInvited: true,
@@ -72,6 +112,20 @@ const categoryCustomMode = ref(false);
 const location = ref<LatLngPoint | null>(null);
 const placeholderMeta = ref<TemplatePlaceholder[]>([]);
 const timeError = ref("");
+
+function onDiscordClubChange(event: Event) {
+  selectedDiscordClubId.value = (event.target as HTMLSelectElement).value;
+  form.discordChannelId = "";
+}
+
+function onTemplateDiscordLoaded(settings: ClubDiscordSettings) {
+  const current = (form.discordChannelId || "").trim();
+  if (!current) return;
+  const ids = new Set((settings.channels || []).map((c) => c.id));
+  if (settings.available && !ids.has(current)) {
+    form.discordChannelId = "";
+  }
+}
 
 const categorySelectValue = computed(() => {
   if (categoryCustomMode.value) return CATEGORY_SELECT_CUSTOM;
@@ -140,6 +194,7 @@ function loadFromProps() {
     form.address = "";
     form.coverPhotoUrl = "";
     form.commentsPermissions = "ORGANIZERS_ONLY";
+    form.discordChannelId = "";
     form.startTime = "";
     form.endTime = "";
     form.allInvited = true;
@@ -148,6 +203,7 @@ function loadFromProps() {
     location.value = null;
     timeError.value = "";
     placeholderMeta.value = [];
+    selectedDiscordClubId.value = pickDefaultDiscordClubId(clubs.value);
     return;
   }
   form.title = p.name || "";
@@ -158,6 +214,8 @@ function loadFromProps() {
   form.address = p.address || "";
   form.coverPhotoUrl = p.coverPhotoUrl || "";
   form.commentsPermissions = p.commentsPermissions || "ORGANIZERS_ONLY";
+  form.discordChannelId = (p.discordChannelId || "").trim();
+  selectedDiscordClubId.value = pickDefaultDiscordClubId(clubs.value, p.discordClubId);
   const startTod = parseTimeOfDay(p.startTime);
   const endTod = parseTimeOfDay(p.endTime);
   form.startTime = startTod ? formatTimeOfDay(startTod) : "";
@@ -228,6 +286,12 @@ function buildPayload(): MeetupPayload {
     address: form.address || undefined,
     coverPhotoUrl: form.coverPhotoUrl || undefined,
     commentsPermissions: form.commentsPermissions,
+    ...(form.discordChannelId.trim()
+      ? { discordChannelId: form.discordChannelId.trim() }
+      : {}),
+    ...(selectedDiscordClubId.value.trim()
+      ? { discordClubId: selectedDiscordClubId.value.trim() }
+      : {}),
     ...(form.startTime.trim() ? { startTime: form.startTime } : {}),
     ...(form.endTime.trim() ? { endTime: form.endTime } : {}),
     allInvited: form.allInvited,
@@ -379,6 +443,34 @@ function onSubmit() {
         <div class="field">
           <label>Who can comment</label>
           <CommentsPermissionsPicker v-model="form.commentsPermissions" />
+        </div>
+
+        <div class="row-2">
+          <div class="field">
+            <label for="tpl-discord-club">Discord club</label>
+            <select
+              id="tpl-discord-club"
+              :value="selectedDiscordClubId"
+              :disabled="!clubs.length"
+              @change="onDiscordClubChange"
+            >
+              <option v-if="!clubs.length" value="">
+                {{ token ? "No admin clubs" : "Campfire token required" }}
+              </option>
+              <option v-for="c in clubs" :key="c.id" :value="c.id">
+                {{ c.name }}
+              </option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Discord channel</label>
+            <DiscordChannelPicker
+              v-model="form.discordChannelId"
+              :club-id="selectedDiscordClubId"
+              hint="Optional · from the club’s Discord integration"
+              @loaded="onTemplateDiscordLoaded"
+            />
+          </div>
         </div>
 
         <div class="field">

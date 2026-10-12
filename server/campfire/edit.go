@@ -24,6 +24,7 @@ type ClubEvent struct {
 	AllInvited                   bool   `json:"allInvited"`
 	CreatedByCommunityAmbassador bool   `json:"createdByCommunityAmbassador"`
 	CampfireLiveEventID          string `json:"campfireLiveEventId"`
+	DiscordChannelID             string `json:"discordChannelId,omitempty"`
 	ClubID                       string `json:"clubId"`
 	Creator                      struct {
 		ID          string `json:"id"`
@@ -110,6 +111,7 @@ type EditEventInput struct {
 	CampfireLiveEventID          string   `json:"campfireLiveEventId,omitempty"`
 	HasEventPhotoChanged         *bool    `json:"hasEventPhotoChanged,omitempty"`
 	CreatedByCommunityAmbassador *bool    `json:"createdByCommunityAmbassador,omitempty"`
+	DiscordChannelID             string   `json:"discordChannelId,omitempty"`
 	// Avatar is uploaded with the edit as input.avatarFile. Campfire ignores
 	// coverPhotoUrl unless this file is attached and hasEventPhotoChanged is set.
 	Avatar *AvatarUpload `json:"-"`

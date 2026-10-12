@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +14,28 @@ import (
 func (s *Server) requireCampfireToken(r *http.Request) (string, bool) {
 	token := campfire.BearerFromRequest(r)
 	return token, token != ""
+}
+
+// resolveDiscordChannelID returns channelID when it belongs to the club's Discord
+// integration. Empty channelID is allowed. Non-empty but unknown → error.
+func (s *Server) resolveDiscordChannelID(ctx context.Context, token, clubID, channelID string) (string, error) {
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
+		return "", nil
+	}
+	settings, err := s.campfire.DiscordSettings(ctx, token, clubID)
+	if err != nil {
+		return "", err
+	}
+	if !settings.Available {
+		return "", fmt.Errorf("this club has no Discord channel settings")
+	}
+	for _, ch := range settings.Channels {
+		if ch.ID == channelID {
+			return channelID, nil
+		}
+	}
+	return "", fmt.Errorf("discordChannelId is not a channel in this club's Discord integration")
 }
 
 // resolveCoverAvatar returns cover bytes for avatarFile on create/edit.
@@ -159,6 +182,29 @@ func (s *Server) campfireClubEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) campfireClubDiscord(w http.ResponseWriter, r *http.Request) {
+	token, ok := s.requireCampfireToken(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "missing Campfire Authorization Bearer token")
+		return
+	}
+	clubID := strings.TrimSpace(r.PathValue("clubId"))
+	if clubID == "" {
+		writeError(w, http.StatusBadRequest, "clubId required")
+		return
+	}
+	settings, err := s.campfire.DiscordSettings(r.Context(), token, clubID)
+	if err != nil {
+		if campfire.IsAuthError(err) {
+			writeError(w, http.StatusUnauthorized, "invalid Campfire token")
+			return
+		}
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
 func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 	token, ok := s.requireCampfireToken(r)
 	if !ok {
@@ -180,6 +226,7 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		InviteeIDs                   []string          `json:"inviteeIds"`
 		CampfireLiveEventID          string            `json:"campfireLiveEventId"`
 		CreatedByCommunityAmbassador *bool             `json:"createdByCommunityAmbassador"`
+		DiscordChannelID             string            `json:"discordChannelId"`
 		Latitude                     *float64          `json:"latitude"`
 		Longitude                    *float64          `json:"longitude"`
 		ClubName                     string            `json:"clubName"`
@@ -257,6 +304,20 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	discordChannelID, err := s.resolveDiscordChannelID(r.Context(), token, clubID, body.DiscordChannelID)
+	if err != nil {
+		if campfire.IsAuthError(err) {
+			writeError(w, http.StatusUnauthorized, "invalid Campfire token")
+			return
+		}
+		if strings.Contains(err.Error(), "discordChannelId") || strings.Contains(err.Error(), "Discord channel") {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
 	// Freeform meetups: one createActivityReminder with location + optional avatarFile
 	// (same as the Campfire app). No follow-up editEvent.
 	createInput := campfire.CreateActivityReminderInput{
@@ -274,6 +335,7 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		UserIDs:                      userIDs,
 		CampfireLiveEventID:          strings.TrimSpace(body.CampfireLiveEventID),
 		CreatedByCommunityAmbassador: body.CreatedByCommunityAmbassador,
+		DiscordChannelID:             discordChannelID,
 		Avatar:                       avatar,
 	}
 
@@ -316,6 +378,7 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 		CreatedByCommunityAmbassador *bool             `json:"createdByCommunityAmbassador"`
 		CampfireLiveEventID          string            `json:"campfireLiveEventId"`
 		HasEventPhotoChanged         *bool             `json:"hasEventPhotoChanged"`
+		DiscordChannelID             string            `json:"discordChannelId"`
 		ClubName                     string            `json:"clubName"`
 		LiveEventName                string            `json:"liveEventName"`
 		Category                     string            `json:"category"`
@@ -403,6 +466,7 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 		CreatedByCommunityAmbassador: body.CreatedByCommunityAmbassador,
 		CampfireLiveEventID:          strings.TrimSpace(body.CampfireLiveEventID),
 		HasEventPhotoChanged:         body.HasEventPhotoChanged,
+		DiscordChannelID:             strings.TrimSpace(body.DiscordChannelID),
 		Avatar:                       avatar,
 	}
 

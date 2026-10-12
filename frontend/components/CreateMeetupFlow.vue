@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type {
   Club,
+  ClubDiscordSettings,
   ClubEvent,
   EditMeetupInput,
   LiveEvent,
@@ -97,10 +98,12 @@ const draft = reactive({
   commentsPermissions: "ORGANIZERS_ONLY",
   allInvited: true,
   createdByCommunityAmbassador: true,
+  discordChannelId: "",
   locationJitterMeters: DEFAULT_LOCATION_JITTER_METERS,
   campfireLiveEventId: "",
 });
 const draftLocation = ref<LatLngPoint | null>(null);
+const lastDiscordSettings = ref<ClubDiscordSettings | null>(null);
 const draftReady = ref(false);
 /** True once the user changes template or meetup fields after auto-fill. */
 const detailsTouched = ref(false);
@@ -642,6 +645,7 @@ async function blankDraftStandalone() {
   draft.commentsPermissions = "ORGANIZERS_ONLY";
   draft.allInvited = true;
   draft.createdByCommunityAmbassador = true;
+  draft.discordChannelId = "";
   const times = await resolveSchedule({ liveEvent: null });
   if (gen !== hydrateGen || editingDraftId.value != null) return;
   draft.eventTime = times.eventTime;
@@ -661,6 +665,7 @@ async function blankDraftFromLiveEvent(ev: LiveEvent) {
   draft.commentsPermissions = "ORGANIZERS_ONLY";
   draft.allInvited = true;
   draft.createdByCommunityAmbassador = true;
+  draft.discordChannelId = "";
   const times = await resolveSchedule({ liveEvent: ev });
   if (gen !== hydrateGen || editingDraftId.value != null) return;
   draft.eventTime = times.eventTime;
@@ -704,6 +709,7 @@ async function hydrateDraft() {
     draft.commentsPermissions = raw.commentsPermissions || "ORGANIZERS_ONLY";
     draft.allInvited = raw.allInvited ?? true;
     draft.createdByCommunityAmbassador = raw.createdByCommunityAmbassador ?? true;
+    draft.discordChannelId = (raw.discordChannelId || "").trim();
     draft.eventTime = times.eventTime;
     draft.eventEndTime = times.eventEndTime;
     draft.campfireLiveEventId = ev?.id || "";
@@ -720,12 +726,14 @@ async function hydrateDraft() {
 
     textViewMode.value = "edit";
     draftReady.value = true;
+    syncDiscordChannelFromSettings();
     return;
   }
 
   if (!draftReady.value) {
     await blankDraftForSelection();
     if (gen !== hydrateGen || editingDraftId.value != null) return;
+    syncDiscordChannelFromSettings();
   } else if (ev) {
     const times = await resolveSchedule({ liveEvent: ev });
     if (gen !== hydrateGen || editingDraftId.value != null) return;
@@ -779,12 +787,46 @@ async function applyTemplateToEdit() {
   draft.commentsPermissions = raw.commentsPermissions || "ORGANIZERS_ONLY";
   draft.allInvited = raw.allInvited ?? true;
   draft.createdByCommunityAmbassador = raw.createdByCommunityAmbassador ?? true;
+  draft.discordChannelId = (raw.discordChannelId || "").trim();
   draft.eventTime = times.eventTime;
   draft.eventEndTime = times.eventEndTime;
   if (raw.latitude != null && raw.longitude != null) {
     draftLocation.value = { lat: raw.latitude, lng: raw.longitude };
   }
   textViewMode.value = "edit";
+  syncDiscordChannelFromSettings();
+}
+
+function onDiscordChannelsLoaded(settings: ClubDiscordSettings) {
+  lastDiscordSettings.value = settings;
+  const current = (draft.discordChannelId || "").trim();
+  const ids = new Set((settings.channels || []).map((c) => c.id));
+  if (current && ids.has(current)) return;
+  const clubDefault = (settings.discordChannelId || "").trim();
+  if (!current && clubDefault && ids.has(clubDefault)) {
+    draft.discordChannelId = clubDefault;
+    return;
+  }
+  if (settings.available && current && !ids.has(current)) {
+    draft.discordChannelId = "";
+    if (clubDefault && ids.has(clubDefault)) {
+      draft.discordChannelId = clubDefault;
+    }
+  }
+}
+
+function syncDiscordChannelFromSettings() {
+  if (lastDiscordSettings.value) onDiscordChannelsLoaded(lastDiscordSettings.value);
+}
+
+/** Only send a channel id that belongs to the selected club's Discord integration. */
+function resolvedDiscordChannelId(): string {
+  const id = (draft.discordChannelId || "").trim();
+  if (!id) return "";
+  const settings = lastDiscordSettings.value;
+  if (!settings?.available) return "";
+  if (!(settings.channels || []).some((c) => c.id === id)) return "";
+  return id;
 }
 
 watch(selectedClubId, () => {
@@ -878,6 +920,7 @@ watch(
     draft.commentsPermissions,
     draft.allInvited,
     draft.createdByCommunityAmbassador,
+    draft.discordChannelId,
     draft.locationJitterMeters,
     draftLocation.value?.lat,
     draftLocation.value?.lng,
@@ -1032,6 +1075,7 @@ function clearEditDraft() {
   draft.commentsPermissions = "ORGANIZERS_ONLY";
   draft.allInvited = true;
   draft.createdByCommunityAmbassador = true;
+  draft.discordChannelId = "";
   draft.campfireLiveEventId = "";
   draft.locationJitterMeters = 0;
 }
@@ -1124,6 +1168,7 @@ async function loadDraftFromClubEvent(ev: ClubEvent) {
   draft.commentsPermissions = ev.commentsPermissions || "ORGANIZERS_ONLY";
   draft.allInvited = ev.allInvited ?? true;
   draft.createdByCommunityAmbassador = ev.createdByCommunityAmbassador ?? true;
+  draft.discordChannelId = (ev.discordChannelId || "").trim();
   draft.campfireLiveEventId = ev.campfireLiveEventId || "";
   draft.locationJitterMeters = 0;
   draftLocation.value = parseCampfireLocation(ev.location);
@@ -1154,6 +1199,7 @@ async function loadDraftFromClubEvent(ev: ClubEvent) {
     draft.eventEndTime = end;
   }
   draftReady.value = true;
+  syncDiscordChannelFromSettings();
 }
 
 function clubEventOptionLabel(ev: ClubEvent) {
@@ -1187,6 +1233,9 @@ function buildEditBody(): EditMeetupInput {
     campfireLiveEventId: draft.campfireLiveEventId || selectedLiveEventId.value || undefined,
     allInvited: draft.allInvited,
     createdByCommunityAmbassador: draft.createdByCommunityAmbassador,
+    ...(resolvedDiscordChannelId()
+      ? { discordChannelId: resolvedDiscordChannelId() }
+      : {}),
     hasEventPhotoChanged: photoChanged,
     clubName: selectedClub.value?.name || undefined,
     liveEventName: selectedLiveEvent.value?.eventName || undefined,
@@ -1217,6 +1266,9 @@ function buildDraftPayload(): DraftMeetupPayload {
     commentsPermissions: draft.commentsPermissions,
     allInvited: draft.allInvited,
     createdByCommunityAmbassador: draft.createdByCommunityAmbassador,
+    ...(resolvedDiscordChannelId()
+      ? { discordChannelId: resolvedDiscordChannelId() }
+      : {}),
     locationJitterMeters: draft.locationJitterMeters,
     location: { ...draftLocation.value! },
     language: meetupLanguage.value || undefined,
@@ -1275,6 +1327,7 @@ function loadDraftFromPayload(p: DraftMeetupPayload) {
   draft.commentsPermissions = p.commentsPermissions;
   draft.allInvited = p.allInvited;
   draft.createdByCommunityAmbassador = p.createdByCommunityAmbassador ?? true;
+  draft.discordChannelId = (p.discordChannelId || "").trim();
   draft.locationJitterMeters = p.locationJitterMeters;
   draft.campfireLiveEventId = p.liveEventId || "";
   const loc = p.location;
@@ -1312,6 +1365,7 @@ function loadDraftFromPayload(p: DraftMeetupPayload) {
     }
   }
   draftReady.value = true;
+  syncDiscordChannelFromSettings();
   endProgrammaticUpdate();
   void refreshEventPokemonResolve();
 }
@@ -1809,6 +1863,15 @@ function templateOptionLabel(t: MeetupTemplate) {
           <div class="field">
             <label>Who can comment</label>
             <CommentsPermissionsPicker v-model="draft.commentsPermissions" />
+          </div>
+
+          <div class="field">
+            <label>Discord channel</label>
+            <DiscordChannelPicker
+              v-model="draft.discordChannelId"
+              :club-id="selectedClubId"
+              @loaded="onDiscordChannelsLoaded"
+            />
           </div>
 
           <div class="field">

@@ -272,7 +272,7 @@ func applyOrigin(
 }
 
 // stripSharedFieldsFromPayload removes personal meetup defaults so Shared
-// listings never redistribute location, invites, or comments settings.
+// listings never redistribute location, invites, comments, or Discord settings.
 func stripSharedFieldsFromPayload(payload json.RawMessage) json.RawMessage {
 	if len(payload) == 0 {
 		return payload
@@ -291,6 +291,8 @@ func stripSharedFieldsFromPayload(payload json.RawMessage) json.RawMessage {
 		"commentsPermissions",
 		"allInvited",
 		"inviteeIds",
+		"discordChannelId",
+		"discordClubId",
 	} {
 		if _, ok := m[key]; ok {
 			delete(m, key)

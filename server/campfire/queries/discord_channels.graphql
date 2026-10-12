@@ -1,0 +1,17 @@
+query DiscordChannelSelectorQR_Query($id: ID!) {
+  club(id: $id) {
+    id
+    clubDiscordSettings {
+      discordGuildId
+      discordChannelId
+      discordGuild {
+        id
+        channels {
+          id
+          name
+          type
+        }
+      }
+    }
+  }
+}

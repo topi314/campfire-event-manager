@@ -22,6 +22,9 @@ var queryClubMembers string
 //go:embed queries/search_club_members.graphql
 var querySearchClubMembers string
 
+//go:embed queries/discord_channels.graphql
+var queryDiscordChannels string
+
 //go:embed mutations/create_activity_reminder.graphql
 var mutationCreateActivityReminder string
 

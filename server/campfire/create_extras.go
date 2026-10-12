@@ -126,6 +126,7 @@ type CreateActivityReminderInput struct {
 	UserIDs                      []string `json:"userIds"`
 	CampfireLiveEventID          string        `json:"campfireLiveEventId,omitempty"`
 	CreatedByCommunityAmbassador *bool         `json:"createdByCommunityAmbassador,omitempty"`
+	DiscordChannelID             string        `json:"discordChannelId,omitempty"`
 	Avatar                       *AvatarUpload `json:"-"`
 }
 

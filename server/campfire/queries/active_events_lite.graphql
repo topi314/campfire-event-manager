@@ -1,0 +1,38 @@
+query ActiveEventsLite_Query(
+  $clubId: ID!
+  $first: Int!
+  $after: String
+) {
+  club(id: $clubId) {
+    id
+    name
+    activeFeed(first: $first, after: $after) {
+      edges {
+        node {
+          __typename
+          ... on Event {
+            id
+            name
+            address
+            coverPhotoUrl
+            eventTime
+            eventEndTime
+            campfireLiveEventId
+            discordChannelId
+            clubId
+            creator {
+              id
+              username
+              displayName
+            }
+          }
+        }
+        cursor
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+}

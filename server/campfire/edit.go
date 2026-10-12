@@ -36,6 +36,7 @@ type ClubEvent struct {
 type activeEventsResp struct {
 	Club struct {
 		ID         string `json:"id"`
+		Name       string `json:"name"`
 		ActiveFeed struct {
 			Edges []struct {
 				Node   json.RawMessage `json:"node"`
@@ -57,27 +58,36 @@ type activeFeedNode struct {
 // ActiveEventsResult is one page of club meetups.
 type ActiveEventsResult struct {
 	Events      []ClubEvent
+	ClubID      string
+	ClubName    string
 	EndCursor   string
 	HasNextPage bool
 }
 
 // ActiveEvents returns upcoming/ongoing meetups for a club (one page).
+// When lite is true, skips heavy fields (details, location, permissions) for list UIs.
 // Discord channels are loaded separately via DiscordSettings.
-func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first int, after string) (ActiveEventsResult, error) {
+func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first int, after string, lite bool) (ActiveEventsResult, error) {
 	out := ActiveEventsResult{
 		Events: []ClubEvent{},
 	}
 	if first <= 0 {
 		first = 50
 	}
+	query := queryActiveEvents
+	if lite {
+		query = queryActiveEventsLite
+	}
 	var resp activeEventsResp
-	if err := c.Do(ctx, token, queryActiveEvents, activeEventsVars{
+	if err := c.Do(ctx, token, query, activeEventsVars{
 		ClubID: clubID,
 		First:  first,
 		After:  after,
 	}, &resp); err != nil {
 		return out, err
 	}
+	out.ClubID = resp.Club.ID
+	out.ClubName = strings.TrimSpace(resp.Club.Name)
 	out.Events = make([]ClubEvent, 0, len(resp.Club.ActiveFeed.Edges))
 	for _, e := range resp.Club.ActiveFeed.Edges {
 		var node activeFeedNode

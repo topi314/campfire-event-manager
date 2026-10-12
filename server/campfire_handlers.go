@@ -147,13 +147,16 @@ func (s *Server) campfireClubEvents(w http.ResponseWriter, r *http.Request) {
 		first = n
 	}
 	after := q.Get("after")
-	res, err := s.campfire.ActiveEvents(r.Context(), token, clubID, first, after)
+	lite := q.Get("lite") == "1" || strings.EqualFold(q.Get("lite"), "true")
+	res, err := s.campfire.ActiveEvents(r.Context(), token, clubID, first, after, lite)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"events":      res.Events,
+		"clubId":      res.ClubID,
+		"clubName":    res.ClubName,
 		"endCursor":   res.EndCursor,
 		"hasNextPage": res.HasNextPage,
 	})

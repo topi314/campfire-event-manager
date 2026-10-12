@@ -7,21 +7,31 @@ import { formatInstant } from "~/utils/datetime";
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { token, authHeaders, openSettings, invalidateToken } = useSessionToken();
-const { validateToken } = useCampfireSession();
 const { timeZone, preferredClubId } = usePreferences();
 const toast = useToast();
 const { apiBase } = useRuntimeConfig().public;
 
 const clubs = ref<Club[]>([]);
+const clubsLoaded = ref(false);
 const selectedClubId = ref("");
+const clubNameFromEvents = ref("");
 const events = ref<ClubEvent[]>([]);
+const eventsCursor = ref("");
+const eventsHasMore = ref(false);
 const error = ref("");
 const loadingClubs = ref(false);
 const loadingEvents = ref(false);
+const loadingMore = ref(false);
 const busy = ref(false);
 const sharingId = ref<string | null>(null);
 const confirmDeleteId = ref<string | null>(null);
 const detailEventId = ref<string | null>(null);
+/** Ignore watchers until first bootstrap finishes. */
+const ready = ref(false);
+
+let clubsInflight: Promise<void> | null = null;
+let eventsInflight: Promise<void> | null = null;
+let eventsInflightClubId = "";
 
 function onDetailKeydown(e: KeyboardEvent) {
   if (e.key === "Escape" && detailEventId.value && !busy.value) closeDetail();
@@ -33,39 +43,42 @@ onMounted(async () => {
     await navigateTo("/login");
     return;
   }
-  await loadClubs();
+  await bootstrap();
+  ready.value = true;
 });
 
 onUnmounted(() => window.removeEventListener("keydown", onDetailKeydown));
 
 watch(token, async (t) => {
+  if (!ready.value) return;
   if (!t) {
     clubs.value = [];
+    clubsLoaded.value = false;
     events.value = [];
+    clubNameFromEvents.value = "";
     selectedClubId.value = "";
     detailEventId.value = null;
     return;
   }
-  await loadClubs();
+  clubsLoaded.value = false;
+  await bootstrap();
 });
 
-watch(selectedClubId, (id) => {
+watch(selectedClubId, (id, prev) => {
+  if (!ready.value) return;
   detailEventId.value = null;
-  if (!id) {
-    events.value = [];
-    return;
-  }
-  void loadEvents(id);
+  if (!id || id === prev) return;
+  void loadEvents(id, { reset: true });
 });
 
 watch(preferredClubId, (preferred) => {
-  if (!preferred || !clubs.value.length) return;
-  if (!clubs.value.some((c) => c.id === preferred)) return;
-  if (selectedClubId.value === preferred) return;
-  if (!selectedClubId.value) selectedClubId.value = preferred;
+  if (!ready.value) return;
+  const next = (preferred || "").trim();
+  if (!next || next === selectedClubId.value) return;
+  selectedClubId.value = next;
 });
 
-async function loadClubs() {
+async function bootstrap() {
   if (!token.value) {
     clubs.value = [];
     events.value = [];
@@ -73,95 +86,162 @@ async function loadClubs() {
     error.value = "Add your Campfire JWT in Settings to load club events.";
     return;
   }
-  loadingClubs.value = true;
   error.value = "";
-  try {
-    const ok = await validateToken({ openSettingsOnFail: false });
-    if (!ok) {
-      clubs.value = [];
-      events.value = [];
-      error.value = "Campfire token invalid";
-      openSettings({ focusToken: true });
-      return;
+  const preferred = preferredClubId.value.trim();
+  if (preferred) {
+    selectedClubId.value = preferred;
+    // Events first — don't wait on the clubs dropdown list.
+    await Promise.all([loadEvents(preferred, { reset: true }), ensureClubs()]);
+    return;
+  }
+  await ensureClubs();
+  if (!selectedClubId.value && clubs.value.length) {
+    selectedClubId.value = clubs.value[0].id;
+  }
+  if (selectedClubId.value) await loadEvents(selectedClubId.value, { reset: true });
+}
+
+/** Club list is only needed to switch clubs — load on demand / in parallel. */
+async function ensureClubs() {
+  if (!token.value || clubsLoaded.value) return;
+  if (clubsInflight) return clubsInflight;
+
+  loadingClubs.value = true;
+  clubsInflight = (async () => {
+    try {
+      clubs.value = await api<Club[]>("/api/campfire/clubs", { headers: authHeaders() });
+      clubsLoaded.value = true;
+      if (!selectedClubId.value && clubs.value.length) {
+        selectedClubId.value = clubs.value[0].id;
+      }
+    } catch (e: any) {
+      error.value = e.message || "Failed to load clubs";
+      if (isCampfireTokenError(e)) {
+        invalidateToken();
+        openSettings({ focusToken: true });
+      }
+    } finally {
+      loadingClubs.value = false;
+      clubsInflight = null;
     }
-    clubs.value = await api<Club[]>("/api/campfire/clubs", { headers: authHeaders() });
-    applyDefaultClub();
-  } catch (e: any) {
-    clubs.value = [];
-    events.value = [];
-    error.value = e.message || "Failed to load clubs";
-    if (isCampfireTokenError(e)) invalidateToken();
-  } finally {
-    loadingClubs.value = false;
-  }
+  })();
+  return clubsInflight;
 }
 
-function applyDefaultClub() {
-  if (!clubs.value.length) {
-    selectedClubId.value = "";
-    return;
-  }
-  const currentOk = clubs.value.some((c) => c.id === selectedClubId.value);
-  if (currentOk) {
-    void loadEvents(selectedClubId.value);
-    return;
-  }
-  const preferred = preferredClubId.value;
-  const preferredOk = !!preferred && clubs.value.some((c) => c.id === preferred);
-  selectedClubId.value = preferredOk ? preferred : clubs.value[0].id;
+type EventsPage = {
+  events: ClubEvent[];
+  clubId?: string;
+  clubName?: string;
+  endCursor?: string;
+  hasNextPage?: boolean;
+};
+
+function mapEvents(list: ClubEvent[], clubId: string): ClubEvent[] {
+  return (list || []).map((ev) => ({
+    ...ev,
+    clubId: ev.clubId || clubId,
+  }));
 }
 
-async function loadEvents(clubId: string) {
+async function fetchEventsPage(clubId: string, after = ""): Promise<EventsPage> {
+  const qs = new URLSearchParams({ first: "50", lite: "1" });
+  if (after) qs.set("after", after);
+  return api<EventsPage>(
+    `/api/campfire/clubs/${encodeURIComponent(clubId)}/events?${qs}`,
+    { headers: authHeaders() },
+  );
+}
+
+async function loadEvents(clubId: string, opts?: { reset?: boolean }) {
   if (!token.value || !clubId) {
     events.value = [];
+    clubNameFromEvents.value = "";
+    eventsCursor.value = "";
+    eventsHasMore.value = false;
     return;
   }
+  if (eventsInflight && eventsInflightClubId === clubId && opts?.reset) {
+    return eventsInflight;
+  }
+
   loadingEvents.value = true;
   error.value = "";
-  try {
-    const all: ClubEvent[] = [];
-    let after = "";
-    let guard = 0;
-    while (guard < 20) {
-      guard++;
-      const qs = new URLSearchParams({ first: "100" });
-      if (after) qs.set("after", after);
-      const res = await api<{
-        events: ClubEvent[];
-        endCursor?: string;
-        hasNextPage?: boolean;
-      }>(`/api/campfire/clubs/${encodeURIComponent(clubId)}/events?${qs}`, {
-        headers: authHeaders(),
-      });
+  eventsInflightClubId = clubId;
+  eventsInflight = (async () => {
+    try {
+      const res = await fetchEventsPage(clubId);
       if (selectedClubId.value !== clubId) return;
-      all.push(
-        ...(res.events || []).map((ev) => ({
-          ...ev,
-          clubId: ev.clubId || clubId,
-        })),
-      );
-      if (!res.hasNextPage || !res.endCursor) break;
-      after = res.endCursor;
+      clubNameFromEvents.value = (res.clubName || "").trim();
+      events.value = mapEvents(res.events || [], clubId).sort((a, b) => {
+        const ta = Date.parse(a.eventTime) || 0;
+        const tb = Date.parse(b.eventTime) || 0;
+        return ta - tb;
+      });
+      eventsCursor.value = res.hasNextPage ? res.endCursor || "" : "";
+      eventsHasMore.value = !!res.hasNextPage && !!res.endCursor;
+    } catch (e: any) {
+      if (selectedClubId.value !== clubId) return;
+      events.value = [];
+      clubNameFromEvents.value = "";
+      eventsCursor.value = "";
+      eventsHasMore.value = false;
+      error.value = e.message || "Failed to load events";
+      if (isCampfireTokenError(e)) {
+        invalidateToken();
+        openSettings({ focusToken: true });
+      }
+    } finally {
+      if (eventsInflightClubId === clubId) {
+        loadingEvents.value = false;
+        eventsInflight = null;
+        eventsInflightClubId = "";
+      }
     }
+  })();
+  return eventsInflight;
+}
+
+async function loadMoreEvents() {
+  const clubId = selectedClubId.value;
+  const after = eventsCursor.value;
+  if (!token.value || !clubId || !after || loadingMore.value || loadingEvents.value) return;
+
+  loadingMore.value = true;
+  error.value = "";
+  try {
+    const res = await fetchEventsPage(clubId, after);
     if (selectedClubId.value !== clubId) return;
-    events.value = all.sort((a, b) => {
+    if (res.clubName) clubNameFromEvents.value = res.clubName.trim();
+    const more = mapEvents(res.events || [], clubId);
+    const seen = new Set(events.value.map((e) => e.id));
+    const merged = [...events.value];
+    for (const ev of more) {
+      if (!seen.has(ev.id)) merged.push(ev);
+    }
+    events.value = merged.sort((a, b) => {
       const ta = Date.parse(a.eventTime) || 0;
       const tb = Date.parse(b.eventTime) || 0;
       return ta - tb;
     });
+    eventsCursor.value = res.hasNextPage ? res.endCursor || "" : "";
+    eventsHasMore.value = !!res.hasNextPage && !!res.endCursor;
   } catch (e: any) {
     if (selectedClubId.value !== clubId) return;
-    events.value = [];
-    error.value = e.message || "Failed to load events";
+    error.value = e.message || "Failed to load more events";
     if (isCampfireTokenError(e)) invalidateToken();
   } finally {
-    if (selectedClubId.value === clubId) loadingEvents.value = false;
+    loadingMore.value = false;
   }
 }
 
 const selectedClub = computed(
   () => clubs.value.find((c) => c.id === selectedClubId.value) || null,
 );
+
+const selectedClubLabel = computed(() => {
+  const fromList = selectedClub.value?.name;
+  return (fromList || clubNameFromEvents.value || "").trim();
+});
 
 const eventRows = computed(() =>
   events.value.map((ev) => {
@@ -292,16 +372,24 @@ async function onConfirmDelete() {
           <select
             id="events-club"
             v-model="selectedClubId"
-            :disabled="loadingClubs || !clubs.length"
+            :disabled="!token || loadingClubs"
+            @focus="ensureClubs"
+            @mousedown="ensureClubs"
           >
-            <option value="" disabled>
+            <option v-if="!selectedClubId" value="" disabled>
               {{
                 loadingClubs
                   ? "Loading clubs…"
-                  : clubs.length
-                    ? "Select a club…"
-                    : "No clubs where you are an admin"
+                  : clubsLoaded
+                    ? "No clubs where you are an admin"
+                    : "Select a club…"
               }}
+            </option>
+            <option
+              v-if="selectedClubId && !clubs.some((c) => c.id === selectedClubId)"
+              :value="selectedClubId"
+            >
+              {{ selectedClubLabel || "Selected club" }}
             </option>
             <option v-for="c in clubs" :key="c.id" :value="c.id">
               {{ c.name }}
@@ -311,9 +399,9 @@ async function onConfirmDelete() {
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
-      <p v-else-if="loadingEvents" class="muted">Loading meetups…</p>
+      <p v-else-if="loadingEvents && !eventRows.length" class="muted">Loading meetups…</p>
 
-      <ul v-else-if="eventRows.length" class="event-list">
+      <ul v-if="eventRows.length" class="event-list">
         <li
           v-for="row in eventRows"
           :key="row.ev.id"
@@ -331,7 +419,7 @@ async function onConfirmDelete() {
           <div class="event-body">
             <strong class="event-name">{{ row.name }}</strong>
             <div class="event-meta muted">
-              <span v-if="selectedClub">{{ selectedClub.name }}</span>
+              <span v-if="selectedClubLabel">{{ selectedClubLabel }}</span>
               <span class="meta-sep">{{ row.when }}</span>
               <span v-if="row.end" class="meta-sep">→ {{ row.end }}</span>
               <span v-if="row.address" class="meta-sep">{{ row.address }}</span>
@@ -372,7 +460,16 @@ async function onConfirmDelete() {
           </div>
         </li>
       </ul>
-      <p v-else-if="selectedClubId && !loadingEvents" class="muted">
+      <div v-if="eventsHasMore" class="load-more">
+        <button
+          type="button"
+          :disabled="loadingMore || loadingEvents || !token"
+          @click="loadMoreEvents"
+        >
+          {{ loadingMore ? "Loading…" : "Load more" }}
+        </button>
+      </div>
+      <p v-else-if="selectedClubId && !loadingEvents && !eventRows.length" class="muted">
         No upcoming meetups in this club.
       </p>
       <p v-else-if="!token" class="muted">
@@ -394,8 +491,8 @@ async function onConfirmDelete() {
         <div class="detail-head">
           <div>
             <h2 id="event-detail-title">{{ detailRow.name }}</h2>
-            <p v-if="selectedClub || detailRow.creator" class="muted detail-sub">
-              <span v-if="selectedClub">{{ selectedClub.name }}</span>
+            <p v-if="selectedClubLabel || detailRow.creator" class="muted detail-sub">
+              <span v-if="selectedClubLabel">{{ selectedClubLabel }}</span>
               <span v-if="detailRow.creator" class="meta-sep">by {{ detailRow.creator }}</span>
             </p>
           </div>
@@ -416,8 +513,10 @@ async function onConfirmDelete() {
               <dt>Address</dt>
               <dd>{{ detailRow.address }}</dd>
             </template>
-            <dt>Description</dt>
-            <dd class="pre">{{ detailRow.details || "—" }}</dd>
+            <template v-if="detailRow.details">
+              <dt>Description</dt>
+              <dd class="pre">{{ detailRow.details }}</dd>
+            </template>
           </dl>
         </div>
 
@@ -492,6 +591,11 @@ async function onConfirmDelete() {
   grid-template-columns: minmax(12rem, 20rem);
   gap: 0.75rem;
   margin-bottom: 1rem;
+}
+.load-more {
+  margin-top: 0.85rem;
+  display: flex;
+  justify-content: center;
 }
 .event-list {
   list-style: none;

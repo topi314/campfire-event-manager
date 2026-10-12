@@ -16,6 +16,9 @@ var queryAdminClubs string
 //go:embed queries/active_events.graphql
 var queryActiveEvents string
 
+//go:embed queries/active_events_lite.graphql
+var queryActiveEventsLite string
+
 //go:embed queries/live_events.graphql
 var queryLiveEvents string
 

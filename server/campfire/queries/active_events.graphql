@@ -5,6 +5,7 @@ query ActiveEvents_Query(
 ) {
   club(id: $clubId) {
     id
+    name
     activeFeed(first: $first, after: $after) {
       edges {
         node {

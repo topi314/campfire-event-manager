@@ -116,7 +116,7 @@ export type Club = {
   amIAdmin: boolean;
   onlyAllowAdminsToCreateEvents: boolean;
   members: { totalCount: number };
-  /** Present on /api/campfire/clubs (embedded from Campfire clubDiscordSettings). */
+  /** Optional cache (e.g. from club events); channels load via /discord. */
   discord?: ClubDiscordSettings;
 };
 

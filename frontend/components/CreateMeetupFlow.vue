@@ -772,6 +772,28 @@ function autoSelectTemplate(force = false) {
   }
 }
 
+/** Apply live-event → template auto-select + hydrate (safe during other programmatic work). */
+function syncTemplateForLiveEvent() {
+  if (mode.value === "edit" || editingDraftId.value != null) return;
+  if (detailsTouched.value) {
+    beginProgrammaticUpdate();
+    void hydrateDraft().finally(() => endProgrammaticUpdate());
+    return;
+  }
+  beginProgrammaticUpdate();
+  languageDirty.value = false;
+  if (selectedLiveEvent.value) {
+    autoSelectTemplate(true);
+  } else {
+    selectedTemplateId.value = "";
+    applyMeetupLanguage(undefined, { force: true });
+  }
+  // After template id updates so custom placeholder keys match the new payload.
+  resetPlaceholders();
+  // Re-apply even when the template id is unchanged (new event times / name).
+  void hydrateDraft().finally(() => endProgrammaticUpdate());
+}
+
 /** Apply selected template onto the meetup being edited (keeps its calendar day). */
 async function applyTemplateToEdit() {
   const raw = rawPayload.value;
@@ -807,15 +829,19 @@ function onDiscordChannelsLoaded(settings: ClubDiscordSettings) {
   const ids = new Set((settings.channels || []).map((c) => c.id));
   if (current && ids.has(current)) return;
   const clubDefault = (settings.discordChannelId || "").trim();
-  if (!current && clubDefault && ids.has(clubDefault)) {
-    draft.discordChannelId = clubDefault;
-    return;
-  }
-  if (settings.available && current && !ids.has(current)) {
-    draft.discordChannelId = "";
-    if (clubDefault && ids.has(clubDefault)) {
+  // Auto channel pick must not flip detailsTouched (blocks live-event template re-select).
+  beginProgrammaticUpdate();
+  try {
+    if (current && !ids.has(current)) {
+      // Channel isn't on this club — leave unset rather than guessing another.
+      draft.discordChannelId = "";
+      return;
+    }
+    if (!current && clubDefault && ids.has(clubDefault)) {
       draft.discordChannelId = clubDefault;
     }
+  } finally {
+    endProgrammaticUpdate();
   }
 }
 
@@ -860,28 +886,16 @@ watch(preferredClubId, (preferred) => {
 });
 
 watch(selectedLiveEventId, () => {
-  // Draft/edit restores set the id under programmaticUpdate — don't overwrite them.
-  if (programmaticUpdate || mode.value === "edit" || editingDraftId.value != null) return;
+  // Don't skip when programmaticUpdate is set — club bootstrap often awaits
+  // meetup-schedule with that flag held, and the live-event change must still
+  // auto-select/apply a template.
+  syncTemplateForLiveEvent();
+});
 
-  // Until the user edits, keep template in sync with the live event category.
-  if (!detailsTouched.value) {
-    beginProgrammaticUpdate();
-    languageDirty.value = false;
-    if (selectedLiveEvent.value) {
-      autoSelectTemplate(true);
-    } else {
-      selectedTemplateId.value = "";
-      applyMeetupLanguage(undefined, { force: true });
-    }
-    // After template id updates so custom placeholder keys match the new payload.
-    resetPlaceholders();
-    // Re-apply even when the template id is unchanged (new event times / name).
-    void hydrateDraft().finally(() => endProgrammaticUpdate());
-    return;
-  }
-
-  beginProgrammaticUpdate();
-  void hydrateDraft().finally(() => endProgrammaticUpdate());
+watch(templates, () => {
+  if (mode.value === "edit" || editingDraftId.value != null) return;
+  if (detailsTouched.value || !selectedLiveEvent.value) return;
+  syncTemplateForLiveEvent();
 });
 
 watch(selectedTemplateId, (id) => {

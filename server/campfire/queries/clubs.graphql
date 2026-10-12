@@ -14,18 +14,6 @@ query ClubsQuery($first: Int!, $after: String) {
           members {
             totalCount
           }
-          clubDiscordSettings {
-            discordGuildId
-            discordChannelId
-            discordGuild {
-              id
-              channels {
-                id
-                name
-                type
-              }
-            }
-          }
         }
       }
       pageInfo {

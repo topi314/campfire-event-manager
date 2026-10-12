@@ -2,6 +2,7 @@ package campfire
 
 import (
 	"context"
+	"strings"
 )
 
 // GamePGO is the only game this app manages meetups for.
@@ -43,8 +44,6 @@ type Club struct {
 	Members                       struct {
 		TotalCount int `json:"totalCount"`
 	} `json:"members"`
-	// Discord is filled from clubDiscordSettings on the clubs query (may be unavailable).
-	Discord ClubDiscordSettings `json:"discord"`
 }
 
 // CanCreateMeetups reports whether the current user may create meetups in this club.
@@ -61,17 +60,16 @@ type clubsResp struct {
 		MemberOf struct {
 			Edges []struct {
 				Node struct {
-					ID                            string                       `json:"id"`
-					Name                          string                       `json:"name"`
-					Game                          string                       `json:"game"`
-					AvatarURL                     string                       `json:"avatarUrl"`
-					CreatedByCommunityAmbassador  bool                         `json:"createdByCommunityAmbassador"`
-					AmIAdmin                      bool                         `json:"amIAdmin"`
-					OnlyAllowAdminsToCreateEvents bool                         `json:"onlyAllowAdminsToCreateEvents"`
+					ID                            string `json:"id"`
+					Name                          string `json:"name"`
+					Game                          string `json:"game"`
+					AvatarURL                     string `json:"avatarUrl"`
+					CreatedByCommunityAmbassador  bool   `json:"createdByCommunityAmbassador"`
+					AmIAdmin                      bool   `json:"amIAdmin"`
+					OnlyAllowAdminsToCreateEvents bool   `json:"onlyAllowAdminsToCreateEvents"`
 					Members                       struct {
 						TotalCount int `json:"totalCount"`
 					} `json:"members"`
-					ClubDiscordSettings *graphqlClubDiscordSettings `json:"clubDiscordSettings"`
 				} `json:"node"`
 			} `json:"edges"`
 			PageInfo struct {
@@ -84,7 +82,7 @@ type clubsResp struct {
 
 // Clubs returns PGO clubs where the current user is an admin.
 // Non-admin membership is ignored for now (meetup create + preferred club).
-// Each club includes Discord channel settings when Campfire has them linked.
+// Discord channels are loaded separately via DiscordSettings.
 func (c *Client) Clubs(ctx context.Context, token string) ([]Club, error) {
 	const pageSize = 100
 	out := make([]Club, 0)
@@ -108,8 +106,60 @@ func (c *Client) Clubs(ctx context.Context, token string) ([]Club, error) {
 				AmIAdmin:                      n.AmIAdmin,
 				OnlyAllowAdminsToCreateEvents: n.OnlyAllowAdminsToCreateEvents,
 				Members:                       n.Members,
-				Discord:                       parseClubDiscordSettings(n.ClubDiscordSettings),
 			})
+		}
+		if !resp.Me.MemberOf.PageInfo.HasNextPage || resp.Me.MemberOf.PageInfo.EndCursor == "" {
+			break
+		}
+		after = resp.Me.MemberOf.PageInfo.EndCursor
+	}
+	return out, nil
+}
+
+type adminClubsResp struct {
+	Me struct {
+		MemberOf struct {
+			Edges []struct {
+				Node struct {
+					ID       string `json:"id"`
+					Game     string `json:"game"`
+					AmIAdmin bool   `json:"amIAdmin"`
+				} `json:"node"`
+			} `json:"edges"`
+			PageInfo struct {
+				HasNextPage bool   `json:"hasNextPage"`
+				EndCursor   string `json:"endCursor"`
+			} `json:"pageInfo"`
+		} `json:"memberOf"`
+	} `json:"me"`
+}
+
+// AdminClubIDs returns PGO club IDs where the current user is an admin.
+// Unlike Clubs, this skips Discord guild/channel payloads (used for draft auth).
+func (c *Client) AdminClubIDs(ctx context.Context, token string) ([]string, error) {
+	const pageSize = 100
+	out := make([]string, 0)
+	seen := make(map[string]struct{})
+	after := ""
+	for {
+		var resp adminClubsResp
+		if err := c.Do(ctx, token, queryAdminClubs, clubsVars{First: pageSize, After: after}, &resp); err != nil {
+			return nil, err
+		}
+		for _, e := range resp.Me.MemberOf.Edges {
+			n := e.Node
+			if n.Game != GamePGO || !n.AmIAdmin {
+				continue
+			}
+			id := strings.TrimSpace(n.ID)
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
 		}
 		if !resp.Me.MemberOf.PageInfo.HasNextPage || resp.Me.MemberOf.PageInfo.EndCursor == "" {
 			break

@@ -10,6 +10,9 @@ var queryMe string
 //go:embed queries/clubs.graphql
 var queryClubs string
 
+//go:embed queries/admin_clubs.graphql
+var queryAdminClubs string
+
 //go:embed queries/active_events.graphql
 var queryActiveEvents string
 

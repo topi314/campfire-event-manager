@@ -32,27 +32,8 @@ func (s *Server) adminClubIDs(r *http.Request) ([]string, error) {
 	if !ok {
 		return nil, errMissingCampfireToken
 	}
-	clubs, err := s.campfire.Clubs(r.Context(), token)
-	if err != nil {
-		return nil, err
-	}
-	ids := make([]string, 0)
-	seen := make(map[string]struct{})
-	for _, c := range clubs {
-		if !c.AmIAdmin {
-			continue
-		}
-		id := strings.TrimSpace(c.ID)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
-	}
-	return ids, nil
+	// Lightweight Campfire query (no Discord channel lists) — drafts only need club IDs.
+	return s.campfire.AdminClubIDs(r.Context(), token)
 }
 
 func (s *Server) requireAdminOfClub(r *http.Request, clubID string) (string, int, string) {
@@ -85,6 +66,10 @@ func (s *Server) listDrafts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if len(ids) == 0 {
+		writeJSON(w, http.StatusOK, []MeetupDraftItem{})
 		return
 	}
 	rows, err := s.db.ListDraftsByClubIDs(r.Context(), ids)

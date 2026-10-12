@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,28 +13,6 @@ import (
 func (s *Server) requireCampfireToken(r *http.Request) (string, bool) {
 	token := campfire.BearerFromRequest(r)
 	return token, token != ""
-}
-
-// resolveDiscordChannelID returns channelID when it belongs to the club's Discord
-// integration. Empty channelID is allowed. Non-empty but unknown → error.
-func (s *Server) resolveDiscordChannelID(ctx context.Context, token, clubID, channelID string) (string, error) {
-	channelID = strings.TrimSpace(channelID)
-	if channelID == "" {
-		return "", nil
-	}
-	settings, err := s.campfire.DiscordSettings(ctx, token, clubID)
-	if err != nil {
-		return "", err
-	}
-	if !settings.Available {
-		return "", fmt.Errorf("this club has no Discord channel settings")
-	}
-	for _, ch := range settings.Channels {
-		if ch.ID == channelID {
-			return channelID, nil
-		}
-	}
-	return "", fmt.Errorf("discordChannelId is not a channel in this club's Discord integration")
 }
 
 // resolveCoverAvatar returns cover bytes for avatarFile on create/edit.
@@ -170,15 +147,16 @@ func (s *Server) campfireClubEvents(w http.ResponseWriter, r *http.Request) {
 		first = n
 	}
 	after := q.Get("after")
-	events, cursor, hasNext, err := s.campfire.ActiveEvents(r.Context(), token, clubID, first, after)
+	res, err := s.campfire.ActiveEvents(r.Context(), token, clubID, first, after)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"events":      events,
-		"endCursor":   cursor,
-		"hasNextPage": hasNext,
+		"events":      res.Events,
+		"discord":     res.Discord,
+		"endCursor":   res.EndCursor,
+		"hasNextPage": res.HasNextPage,
 	})
 }
 
@@ -304,22 +282,9 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	discordChannelID, err := s.resolveDiscordChannelID(r.Context(), token, clubID, body.DiscordChannelID)
-	if err != nil {
-		if campfire.IsAuthError(err) {
-			writeError(w, http.StatusUnauthorized, "invalid Campfire token")
-			return
-		}
-		if strings.Contains(err.Error(), "discordChannelId") || strings.Contains(err.Error(), "Discord channel") {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-
 	// Freeform meetups: one createActivityReminder with location + optional avatarFile
 	// (same as the Campfire app). No follow-up editEvent.
+	// discordChannelId is trusted from the client (validated against club Discord channels in the UI).
 	createInput := campfire.CreateActivityReminderInput{
 		ClubID:                       clubID,
 		Name:                         name,
@@ -335,7 +300,7 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		UserIDs:                      userIDs,
 		CampfireLiveEventID:          strings.TrimSpace(body.CampfireLiveEventID),
 		CreatedByCommunityAmbassador: body.CreatedByCommunityAmbassador,
-		DiscordChannelID:             discordChannelID,
+		DiscordChannelID:             strings.TrimSpace(body.DiscordChannelID),
 		Avatar:                       avatar,
 	}
 

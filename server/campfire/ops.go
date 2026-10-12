@@ -43,6 +43,8 @@ type Club struct {
 	Members                       struct {
 		TotalCount int `json:"totalCount"`
 	} `json:"members"`
+	// Discord is filled from clubDiscordSettings on the clubs query (may be unavailable).
+	Discord ClubDiscordSettings `json:"discord"`
 }
 
 // CanCreateMeetups reports whether the current user may create meetups in this club.
@@ -58,7 +60,19 @@ type clubsResp struct {
 		ID       string `json:"id"`
 		MemberOf struct {
 			Edges []struct {
-				Node Club `json:"node"`
+				Node struct {
+					ID                            string                       `json:"id"`
+					Name                          string                       `json:"name"`
+					Game                          string                       `json:"game"`
+					AvatarURL                     string                       `json:"avatarUrl"`
+					CreatedByCommunityAmbassador  bool                         `json:"createdByCommunityAmbassador"`
+					AmIAdmin                      bool                         `json:"amIAdmin"`
+					OnlyAllowAdminsToCreateEvents bool                         `json:"onlyAllowAdminsToCreateEvents"`
+					Members                       struct {
+						TotalCount int `json:"totalCount"`
+					} `json:"members"`
+					ClubDiscordSettings *graphqlClubDiscordSettings `json:"clubDiscordSettings"`
+				} `json:"node"`
 			} `json:"edges"`
 			PageInfo struct {
 				HasNextPage bool   `json:"hasNextPage"`
@@ -70,6 +84,7 @@ type clubsResp struct {
 
 // Clubs returns PGO clubs where the current user is an admin.
 // Non-admin membership is ignored for now (meetup create + preferred club).
+// Each club includes Discord channel settings when Campfire has them linked.
 func (c *Client) Clubs(ctx context.Context, token string) ([]Club, error) {
 	const pageSize = 100
 	out := make([]Club, 0)
@@ -80,13 +95,21 @@ func (c *Client) Clubs(ctx context.Context, token string) ([]Club, error) {
 			return nil, err
 		}
 		for _, e := range resp.Me.MemberOf.Edges {
-			club := e.Node
-			if club.Game != GamePGO {
+			n := e.Node
+			if n.Game != GamePGO || !n.AmIAdmin {
 				continue
 			}
-			if club.AmIAdmin {
-				out = append(out, club)
-			}
+			out = append(out, Club{
+				ID:                            n.ID,
+				Name:                          n.Name,
+				Game:                          n.Game,
+				AvatarURL:                     n.AvatarURL,
+				CreatedByCommunityAmbassador:  n.CreatedByCommunityAmbassador,
+				AmIAdmin:                      n.AmIAdmin,
+				OnlyAllowAdminsToCreateEvents: n.OnlyAllowAdminsToCreateEvents,
+				Members:                       n.Members,
+				Discord:                       parseClubDiscordSettings(n.ClubDiscordSettings),
+			})
 		}
 		if !resp.Me.MemberOf.PageInfo.HasNextPage || resp.Me.MemberOf.PageInfo.EndCursor == "" {
 			break

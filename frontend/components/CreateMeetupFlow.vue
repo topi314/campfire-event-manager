@@ -251,6 +251,10 @@ const selectedClub = computed(() =>
   clubs.value.find((c) => c.id === selectedClubId.value) || null,
 );
 
+const selectedClubDiscord = computed(
+  () => selectedClub.value?.discord ?? null,
+);
+
 const selectedLiveEvent = computed(() =>
   liveEvents.value.find((e) => e.id === selectedLiveEventId.value) || null,
 );
@@ -1102,12 +1106,18 @@ async function loadClubEvents(opts?: { force?: boolean }) {
   clubEventsLoadedFor.value = clubId;
   const run = (async () => {
     try {
-      const res = await api<{ events: ClubEvent[] }>(
+      const res = await api<{ events: ClubEvent[]; discord?: ClubDiscordSettings }>(
         `/api/campfire/clubs/${encodeURIComponent(clubId)}/events?first=100`,
         { headers: authHeaders() },
       );
       if (selectedClubId.value !== clubId) return;
       clubEvents.value = res.events || [];
+      if (res.discord) {
+        const idx = clubs.value.findIndex((c) => c.id === clubId);
+        if (idx >= 0) {
+          clubs.value[idx] = { ...clubs.value[idx], discord: res.discord };
+        }
+      }
     } catch (e: any) {
       if (selectedClubId.value !== clubId) return;
       if (mode.value === "edit") {
@@ -1870,6 +1880,7 @@ function templateOptionLabel(t: MeetupTemplate) {
             <DiscordChannelPicker
               v-model="draft.discordChannelId"
               :club-id="selectedClubId"
+              :preloaded="selectedClubDiscord"
               @loaded="onDiscordChannelsLoaded"
             />
           </div>

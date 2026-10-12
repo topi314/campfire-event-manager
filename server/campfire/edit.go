@@ -35,8 +35,9 @@ type ClubEvent struct {
 
 type activeEventsResp struct {
 	Club struct {
-		ID         string `json:"id"`
-		ActiveFeed struct {
+		ID                  string                       `json:"id"`
+		ClubDiscordSettings *graphqlClubDiscordSettings  `json:"clubDiscordSettings"`
+		ActiveFeed          struct {
 			Edges []struct {
 				Node   json.RawMessage `json:"node"`
 				Cursor string          `json:"cursor"`
@@ -54,8 +55,21 @@ type activeFeedNode struct {
 	ClubEvent
 }
 
-// ActiveEvents returns upcoming/ongoing meetups for a club (one page).
-func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first int, after string) ([]ClubEvent, string, bool, error) {
+// ActiveEventsResult is one page of club meetups plus Discord settings for that club.
+type ActiveEventsResult struct {
+	Events      []ClubEvent
+	Discord     ClubDiscordSettings
+	EndCursor   string
+	HasNextPage bool
+}
+
+// ActiveEvents returns upcoming/ongoing meetups for a club (one page),
+// together with that club's Discord channel settings (one GraphQL round-trip).
+func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first int, after string) (ActiveEventsResult, error) {
+	out := ActiveEventsResult{
+		Events:  []ClubEvent{},
+		Discord: ClubDiscordSettings{Channels: []DiscordChannel{}},
+	}
 	if first <= 0 {
 		first = 50
 	}
@@ -65,9 +79,10 @@ func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first i
 		First:  first,
 		After:  after,
 	}, &resp); err != nil {
-		return nil, "", false, err
+		return out, err
 	}
-	out := make([]ClubEvent, 0, len(resp.Club.ActiveFeed.Edges))
+	out.Discord = parseClubDiscordSettings(resp.Club.ClubDiscordSettings)
+	out.Events = make([]ClubEvent, 0, len(resp.Club.ActiveFeed.Edges))
 	for _, e := range resp.Club.ActiveFeed.Edges {
 		var node activeFeedNode
 		if err := json.Unmarshal(e.Node, &node); err != nil {
@@ -87,9 +102,11 @@ func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first i
 		// misread them as browser-local wall clocks.
 		ev.EventTime = meetuptime.NormalizeCampfireInstantRFC3339(ev.EventTime)
 		ev.EventEndTime = meetuptime.NormalizeCampfireInstantRFC3339(ev.EventEndTime)
-		out = append(out, ev)
+		out.Events = append(out.Events, ev)
 	}
-	return out, resp.Club.ActiveFeed.PageInfo.EndCursor, resp.Club.ActiveFeed.PageInfo.HasNextPage, nil
+	out.EndCursor = resp.Club.ActiveFeed.PageInfo.EndCursor
+	out.HasNextPage = resp.Club.ActiveFeed.PageInfo.HasNextPage
+	return out, nil
 }
 
 // EditEventInput is the GraphQL input for editEvent (from Campfire client).

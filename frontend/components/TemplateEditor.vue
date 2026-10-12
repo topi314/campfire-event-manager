@@ -113,6 +113,14 @@ const location = ref<LatLngPoint | null>(null);
 const placeholderMeta = ref<TemplatePlaceholder[]>([]);
 const timeError = ref("");
 
+const selectedDiscordClub = computed(
+  () => clubs.value.find((c) => c.id === selectedDiscordClubId.value) || null,
+);
+
+const selectedDiscordPreloaded = computed(
+  () => selectedDiscordClub.value?.discord ?? null,
+);
+
 function onDiscordClubChange(event: Event) {
   selectedDiscordClubId.value = (event.target as HTMLSelectElement).value;
   form.discordChannelId = "";
@@ -467,6 +475,7 @@ function onSubmit() {
             <DiscordChannelPicker
               v-model="form.discordChannelId"
               :club-id="selectedDiscordClubId"
+              :preloaded="selectedDiscordPreloaded"
               hint="Optional · from the club’s Discord integration"
               @loaded="onTemplateDiscordLoaded"
             />

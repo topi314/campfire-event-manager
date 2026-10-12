@@ -4,6 +4,8 @@ import type { ClubDiscordChannel, ClubDiscordSettings } from "~/types";
 const props = defineProps<{
   modelValue: string;
   clubId: string;
+  /** When set for the current clubId, skip the Discord GraphQL fetch. */
+  preloaded?: ClubDiscordSettings | null;
   /** Optional override for the muted hint under the select. */
   hint?: string;
 }>();
@@ -35,6 +37,20 @@ const hintText = computed(() => {
   return props.hint || "Posted to this channel when the meetup is created.";
 });
 
+function applySettings(clubId: string, settings: ClubDiscordSettings) {
+  loadedForClub.value = clubId;
+  available.value = !!settings.available;
+  channels.value = settings.channels || [];
+  defaultChannelId.value = (settings.discordChannelId || "").trim();
+  loading.value = false;
+  emit("loaded", {
+    available: available.value,
+    discordGuildId: settings.discordGuildId,
+    discordChannelId: defaultChannelId.value,
+    channels: channels.value,
+  });
+}
+
 async function loadChannels(clubId: string) {
   const id = clubId.trim();
   if (!id || !token.value) {
@@ -42,6 +58,7 @@ async function loadChannels(clubId: string) {
     channels.value = [];
     defaultChannelId.value = "";
     loadedForClub.value = "";
+    loading.value = false;
     emit("loaded", { available: false, channels: [] });
     return;
   }
@@ -54,30 +71,26 @@ async function loadChannels(clubId: string) {
       { headers: authHeaders() },
     );
     if (loadedForClub.value !== id) return;
-    available.value = !!res.available;
-    channels.value = res.channels || [];
-    defaultChannelId.value = (res.discordChannelId || "").trim();
-    emit("loaded", {
-      available: available.value,
-      discordGuildId: res.discordGuildId,
-      discordChannelId: defaultChannelId.value,
-      channels: channels.value,
-    });
+    applySettings(id, res);
   } catch {
     if (loadedForClub.value !== id) return;
     available.value = false;
     channels.value = [];
     defaultChannelId.value = "";
+    loading.value = false;
     emit("loaded", { available: false, channels: [] });
-  } finally {
-    if (loadedForClub.value === id) loading.value = false;
   }
 }
 
 watch(
-  () => [props.clubId, token.value] as const,
-  ([clubId]) => {
-    void loadChannels(clubId || "");
+  () => [props.clubId, props.preloaded, token.value] as const,
+  ([clubId, preloaded]) => {
+    const id = (clubId || "").trim();
+    if (preloaded != null && id) {
+      applySettings(id, preloaded);
+      return;
+    }
+    void loadChannels(id);
   },
   { immediate: true },
 );

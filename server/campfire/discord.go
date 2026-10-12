@@ -22,21 +22,24 @@ type ClubDiscordSettings struct {
 	Channels         []DiscordChannel `json:"channels"`
 }
 
+// graphqlClubDiscordSettings matches Campfire's clubDiscordSettings selection.
+type graphqlClubDiscordSettings struct {
+	DiscordGuildID   string `json:"discordGuildId"`
+	DiscordChannelID string `json:"discordChannelId"`
+	DiscordGuild     *struct {
+		ID       string `json:"id"`
+		Channels []struct {
+			ID   string          `json:"id"`
+			Name string          `json:"name"`
+			Type json.RawMessage `json:"type"`
+		} `json:"channels"`
+	} `json:"discordGuild"`
+}
+
 type discordChannelsResp struct {
 	Club struct {
-		ID                  string `json:"id"`
-		ClubDiscordSettings *struct {
-			DiscordGuildID   string `json:"discordGuildId"`
-			DiscordChannelID string `json:"discordChannelId"`
-			DiscordGuild     *struct {
-				ID       string `json:"id"`
-				Channels []struct {
-					ID   string          `json:"id"`
-					Name string          `json:"name"`
-					Type json.RawMessage `json:"type"`
-				} `json:"channels"`
-			} `json:"discordGuild"`
-		} `json:"clubDiscordSettings"`
+		ID                  string                       `json:"id"`
+		ClubDiscordSettings *graphqlClubDiscordSettings `json:"clubDiscordSettings"`
 	} `json:"club"`
 }
 
@@ -59,23 +62,10 @@ func discordTypeString(raw json.RawMessage) string {
 	return strings.Trim(string(raw), `"`)
 }
 
-// DiscordSettings returns Discord channel options for a club.
-// Available is false when settings or guild channels are missing.
-func (c *Client) DiscordSettings(ctx context.Context, token, clubID string) (ClubDiscordSettings, error) {
+func parseClubDiscordSettings(settings *graphqlClubDiscordSettings) ClubDiscordSettings {
 	out := ClubDiscordSettings{Channels: []DiscordChannel{}}
-	clubID = strings.TrimSpace(clubID)
-	if clubID == "" {
-		return out, nil
-	}
-
-	var resp discordChannelsResp
-	if err := c.Do(ctx, token, queryDiscordChannels, discordChannelsVars{ID: clubID}, &resp); err != nil {
-		return out, err
-	}
-
-	settings := resp.Club.ClubDiscordSettings
 	if settings == nil || settings.DiscordGuild == nil {
-		return out, nil
+		return out
 	}
 
 	channels := make([]DiscordChannel, 0, len(settings.DiscordGuild.Channels))
@@ -91,7 +81,7 @@ func (c *Client) DiscordSettings(ctx context.Context, token, clubID string) (Clu
 		})
 	}
 	if len(channels) == 0 {
-		return out, nil
+		return out
 	}
 
 	out.Available = true
@@ -101,5 +91,21 @@ func (c *Client) DiscordSettings(ctx context.Context, token, clubID string) (Clu
 	}
 	out.DiscordChannelID = strings.TrimSpace(settings.DiscordChannelID)
 	out.Channels = channels
-	return out, nil
+	return out
+}
+
+// DiscordSettings returns Discord channel options for a club.
+// Available is false when settings or guild channels are missing.
+func (c *Client) DiscordSettings(ctx context.Context, token, clubID string) (ClubDiscordSettings, error) {
+	out := ClubDiscordSettings{Channels: []DiscordChannel{}}
+	clubID = strings.TrimSpace(clubID)
+	if clubID == "" {
+		return out, nil
+	}
+
+	var resp discordChannelsResp
+	if err := c.Do(ctx, token, queryDiscordChannels, discordChannelsVars{ID: clubID}, &resp); err != nil {
+		return out, err
+	}
+	return parseClubDiscordSettings(resp.Club.ClubDiscordSettings), nil
 }

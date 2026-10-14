@@ -9,11 +9,13 @@ SELECT
     t.template_language,
     t.template_origin_id,
     t.template_synced,
+    t.template_overrides,
     t.template_created_at,
     t.template_updated_at,
     o.template_id AS origin_id,
     o.template_name AS origin_name,
     o.template_payload AS origin_payload,
+    o.template_language AS origin_language,
     ou.discord_user_id AS origin_publisher_id,
     ou.discord_user_username AS origin_publisher_username,
     ou.discord_user_display_name AS origin_publisher_display_name,
@@ -35,11 +37,13 @@ SELECT
     t.template_language,
     t.template_origin_id,
     t.template_synced,
+    t.template_overrides,
     t.template_created_at,
     t.template_updated_at,
     o.template_id AS origin_id,
     o.template_name AS origin_name,
     o.template_payload AS origin_payload,
+    o.template_language AS origin_language,
     ou.discord_user_id AS origin_publisher_id,
     ou.discord_user_username AS origin_publisher_username,
     ou.discord_user_display_name AS origin_publisher_display_name,
@@ -60,6 +64,7 @@ SELECT
     t.template_language,
     t.template_origin_id,
     t.template_synced,
+    t.template_overrides,
     t.template_created_at,
     t.template_updated_at
 FROM meetup_templates t
@@ -72,10 +77,11 @@ INSERT INTO meetup_templates (
     template_payload,
     template_origin_id,
     template_synced,
+    template_overrides,
     template_language,
     template_created_at,
     template_updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING
     template_id,
     template_discord_user_id,
@@ -86,6 +92,7 @@ RETURNING
     template_language,
     template_origin_id,
     template_synced,
+    template_overrides,
     template_created_at,
     template_updated_at;
 
@@ -94,9 +101,10 @@ UPDATE meetup_templates
 SET template_name = $1,
     template_payload = $2,
     template_language = $3,
-    template_synced = FALSE,
-    template_updated_at = $6
-WHERE template_id = $4 AND template_discord_user_id = $5
+    template_overrides = $4,
+    template_synced = $5,
+    template_updated_at = $8
+WHERE template_id = $6 AND template_discord_user_id = $7
 RETURNING
     template_id,
     template_discord_user_id,
@@ -107,6 +115,32 @@ RETURNING
     template_language,
     template_origin_id,
     template_synced,
+    template_overrides,
+    template_created_at,
+    template_updated_at;
+
+-- name: UnlinkTemplate :one
+UPDATE meetup_templates
+SET template_name = $1,
+    template_payload = $2,
+    template_language = $3,
+    template_origin_id = NULL,
+    template_overrides = '{}'::jsonb,
+    template_synced = FALSE,
+    template_updated_at = $6
+WHERE template_id = $4 AND template_discord_user_id = $5
+  AND template_origin_id IS NOT NULL
+RETURNING
+    template_id,
+    template_discord_user_id,
+    template_name,
+    template_payload,
+    template_published_at,
+    template_publish_description,
+    template_language,
+    template_origin_id,
+    template_synced,
+    template_overrides,
     template_created_at,
     template_updated_at;
 
@@ -127,6 +161,7 @@ RETURNING
     template_language,
     template_origin_id,
     template_synced,
+    template_overrides,
     template_created_at,
     template_updated_at;
 
@@ -145,6 +180,7 @@ RETURNING
     template_language,
     template_origin_id,
     template_synced,
+    template_overrides,
     template_created_at,
     template_updated_at;
 
@@ -163,6 +199,7 @@ SELECT
     t.template_language,
     t.template_origin_id,
     t.template_synced,
+    t.template_overrides,
     t.template_created_at,
     t.template_updated_at,
     u.discord_user_id AS publisher_id,

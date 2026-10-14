@@ -15,6 +15,7 @@ type MeetupTemplate struct {
 	Language           *string         `json:"language,omitempty"`
 	OriginID           *int64          `json:"originTemplateId"`
 	Synced             bool            `json:"synced"`
+	OverriddenFields   []string        `json:"overriddenFields,omitempty"`
 	CreatedAt          time.Time       `json:"createdAt"`
 	UpdatedAt          time.Time       `json:"updatedAt"`
 
@@ -34,9 +35,11 @@ type UserRef struct {
 }
 
 type TemplateOrigin struct {
-	ID        int64    `json:"id"`
-	Name      string   `json:"name"`
-	Publisher *UserRef `json:"publisher,omitempty"`
+	ID        int64           `json:"id"`
+	Name      string          `json:"name"`
+	Language  *string         `json:"language,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
+	Publisher *UserRef        `json:"publisher,omitempty"`
 }
 
 type MeetupDraftItem struct {

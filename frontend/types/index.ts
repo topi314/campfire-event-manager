@@ -20,8 +20,10 @@ export type MeetupTemplate = {
   /** ISO 639-1 language code for the template (e.g. en, de). */
   language?: string | null;
   originTemplateId?: number | null;
-  /** Clone still follows the origin until you edit it. */
+  /** Linked clone with no local overrides (fully follows the original). */
   synced?: boolean;
+  /** Field/group ids locally overridden on a linked clone. */
+  overriddenFields?: string[];
   createdAt: string;
   updatedAt: string;
   publisher?: TemplatePublisher;
@@ -41,6 +43,8 @@ export type TemplatePublisher = {
 export type TemplateOrigin = {
   id: number;
   name: string;
+  language?: string | null;
+  payload?: MeetupPayload | string | null;
   publisher?: TemplatePublisher;
 };
 

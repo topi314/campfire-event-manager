@@ -15,25 +15,27 @@ import (
 )
 
 func templateWithOrigin(row dbsqlc.ListTemplatesByUserRow) MeetupTemplate {
-	return applyOrigin(
+	return applyOriginMergeWithOverrides(
 		templateFrom(
 			row.TemplateID, row.TemplateDiscordUserID, row.TemplateName, row.TemplatePayload,
 			row.TemplatePublishedAt, row.TemplatePublishDescription, row.TemplateLanguage,
 			row.TemplateOriginID, row.TemplateSynced, row.TemplateCreatedAt, row.TemplateUpdatedAt,
 		),
-		row.OriginID, row.OriginName, row.OriginPayload,
+		row.TemplateOverrides,
+		row.OriginID, row.OriginName, row.OriginPayload, row.OriginLanguage,
 		row.OriginPublisherID, row.OriginPublisherUsername, row.OriginPublisherDisplayName, row.OriginPublisherAvatarUrl,
 	)
 }
 
 func templateWithOriginGet(row dbsqlc.GetTemplateForUserRow) MeetupTemplate {
-	return applyOrigin(
+	return applyOriginMergeWithOverrides(
 		templateFrom(
 			row.TemplateID, row.TemplateDiscordUserID, row.TemplateName, row.TemplatePayload,
 			row.TemplatePublishedAt, row.TemplatePublishDescription, row.TemplateLanguage,
 			row.TemplateOriginID, row.TemplateSynced, row.TemplateCreatedAt, row.TemplateUpdatedAt,
 		),
-		row.OriginID, row.OriginName, row.OriginPayload,
+		row.TemplateOverrides,
+		row.OriginID, row.OriginName, row.OriginPayload, row.OriginLanguage,
 		row.OriginPublisherID, row.OriginPublisherUsername, row.OriginPublisherDisplayName, row.OriginPublisherAvatarUrl,
 	)
 }
@@ -63,6 +65,14 @@ func templateFromPublish(row dbsqlc.PublishTemplateRow) MeetupTemplate {
 }
 
 func templateFromUnpublish(row dbsqlc.UnpublishTemplateRow) MeetupTemplate {
+	return templateFrom(
+		row.TemplateID, row.TemplateDiscordUserID, row.TemplateName, row.TemplatePayload,
+		row.TemplatePublishedAt, row.TemplatePublishDescription, row.TemplateLanguage,
+		row.TemplateOriginID, row.TemplateSynced, row.TemplateCreatedAt, row.TemplateUpdatedAt,
+	)
+}
+
+func templateFromUnlink(row dbsqlc.UnlinkTemplateRow) MeetupTemplate {
 	return templateFrom(
 		row.TemplateID, row.TemplateDiscordUserID, row.TemplateName, row.TemplatePayload,
 		row.TemplatePublishedAt, row.TemplatePublishDescription, row.TemplateLanguage,
@@ -132,7 +142,7 @@ func (s *Server) listPublishedTemplates(ctx context.Context, f SharedFilter) ([]
 			ID:                 row.TemplateID,
 			DiscordUserID:      row.TemplateDiscordUserID,
 			Name:               row.TemplateName,
-			Payload:            stripSharedFieldsFromPayload(row.TemplatePayload),
+			Payload:            row.TemplatePayload,
 			PublishedAt:        timePtr(row.TemplatePublishedAt),
 			PublishDescription: stringPtr(row.TemplatePublishDescription),
 			Language:           stringPtr(row.TemplateLanguage),
@@ -241,15 +251,50 @@ func (s *Server) listTemplateLikersGrouped(ctx context.Context, ids []int64) (ma
 	return out, nil
 }
 
-func applyOrigin(
+func applyOriginMergeWithOverrides(
 	t MeetupTemplate,
+	overrides json.RawMessage,
 	originID pgtype.Int8,
 	originName pgtype.Text,
 	originPayload []byte,
+	originLanguage pgtype.Text,
 	opID, opUser, opDisplay, opAvatar pgtype.Text,
 ) MeetupTemplate {
-	if originID.Valid && originName.Valid {
-		origin := &TemplateOrigin{ID: originID.Int64, Name: originName.String}
+	if t.OriginID == nil {
+		return t
+	}
+
+	originPresent := originID.Valid && originName.Valid
+	var originPayloadRaw json.RawMessage
+	if len(originPayload) > 0 {
+		originPayloadRaw = json.RawMessage(originPayload)
+	} else {
+		originPayloadRaw = json.RawMessage(`{}`)
+	}
+
+	merged := mergeLinkedTemplate(
+		t.Name,
+		t.Language,
+		t.Payload,
+		overrides,
+		textString(originName),
+		stringPtr(originLanguage),
+		originPayloadRaw,
+		originPresent,
+	)
+	t.Name = merged.Name
+	t.Language = merged.Language
+	t.Payload = merged.Payload
+	t.OverriddenFields = merged.OverriddenFields
+	t.Synced = originPresent && merged.Synced
+
+	if originPresent {
+		origin := &TemplateOrigin{
+			ID:       originID.Int64,
+			Name:     originName.String,
+			Language: stringPtr(originLanguage),
+			Payload:  originPayloadRaw,
+		}
 		if opID.Valid {
 			origin.Publisher = &UserRef{
 				ID:          opID.String,
@@ -259,54 +304,14 @@ func applyOrigin(
 			}
 		}
 		t.Origin = origin
-		if t.Synced {
-			t.Name = originName.String
-			if len(originPayload) > 0 {
-				t.Payload = stripSharedFieldsFromPayload(json.RawMessage(originPayload))
-			}
-		}
-	} else if t.Synced {
+	} else {
+		// Origin row gone — keep local snapshot, drop link in API response.
+		t.Origin = nil
+		t.OriginID = nil
 		t.Synced = false
+		t.OverriddenFields = nil
 	}
 	return t
-}
-
-// stripSharedFieldsFromPayload removes personal meetup defaults so Shared
-// listings never redistribute location, invites, comments, or Discord settings.
-func stripSharedFieldsFromPayload(payload json.RawMessage) json.RawMessage {
-	if len(payload) == 0 {
-		return payload
-	}
-	var m map[string]any
-	if err := json.Unmarshal(payload, &m); err != nil {
-		return payload
-	}
-	changed := false
-	for _, key := range []string{
-		"latitude",
-		"longitude",
-		"address",
-		"placeId",
-		"locationJitterMeters",
-		"commentsPermissions",
-		"allInvited",
-		"inviteeIds",
-		"discordChannelId",
-		"discordClubId",
-	} {
-		if _, ok := m[key]; ok {
-			delete(m, key)
-			changed = true
-		}
-	}
-	if !changed {
-		return payload
-	}
-	out, err := json.Marshal(m)
-	if err != nil {
-		return payload
-	}
-	return out
 }
 
 func timeFrom(ts pgtype.Timestamp) time.Time {

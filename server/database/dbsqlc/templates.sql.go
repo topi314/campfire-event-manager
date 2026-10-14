@@ -32,10 +32,11 @@ INSERT INTO meetup_templates (
     template_payload,
     template_origin_id,
     template_synced,
+    template_overrides,
     template_language,
     template_created_at,
     template_updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING
     template_id,
     template_discord_user_id,
@@ -46,6 +47,7 @@ RETURNING
     template_language,
     template_origin_id,
     template_synced,
+    template_overrides,
     template_created_at,
     template_updated_at
 `
@@ -56,6 +58,7 @@ type CreateTemplateParams struct {
 	TemplatePayload       json.RawMessage
 	TemplateOriginID      pgtype.Int8
 	TemplateSynced        bool
+	TemplateOverrides     json.RawMessage
 	TemplateLanguage      pgtype.Text
 	TemplateCreatedAt     pgtype.Timestamp
 	TemplateUpdatedAt     pgtype.Timestamp
@@ -71,6 +74,7 @@ type CreateTemplateRow struct {
 	TemplateLanguage           pgtype.Text
 	TemplateOriginID           pgtype.Int8
 	TemplateSynced             bool
+	TemplateOverrides          json.RawMessage
 	TemplateCreatedAt          pgtype.Timestamp
 	TemplateUpdatedAt          pgtype.Timestamp
 }
@@ -82,6 +86,7 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		arg.TemplatePayload,
 		arg.TemplateOriginID,
 		arg.TemplateSynced,
+		arg.TemplateOverrides,
 		arg.TemplateLanguage,
 		arg.TemplateCreatedAt,
 		arg.TemplateUpdatedAt,
@@ -97,6 +102,7 @@ func (q *Queries) CreateTemplate(ctx context.Context, arg CreateTemplateParams) 
 		&i.TemplateLanguage,
 		&i.TemplateOriginID,
 		&i.TemplateSynced,
+		&i.TemplateOverrides,
 		&i.TemplateCreatedAt,
 		&i.TemplateUpdatedAt,
 	)
@@ -132,6 +138,7 @@ SELECT
     t.template_language,
     t.template_origin_id,
     t.template_synced,
+    t.template_overrides,
     t.template_created_at,
     t.template_updated_at
 FROM meetup_templates t
@@ -148,6 +155,7 @@ type GetTemplateByIDRow struct {
 	TemplateLanguage           pgtype.Text
 	TemplateOriginID           pgtype.Int8
 	TemplateSynced             bool
+	TemplateOverrides          json.RawMessage
 	TemplateCreatedAt          pgtype.Timestamp
 	TemplateUpdatedAt          pgtype.Timestamp
 }
@@ -165,6 +173,7 @@ func (q *Queries) GetTemplateByID(ctx context.Context, templateID int64) (GetTem
 		&i.TemplateLanguage,
 		&i.TemplateOriginID,
 		&i.TemplateSynced,
+		&i.TemplateOverrides,
 		&i.TemplateCreatedAt,
 		&i.TemplateUpdatedAt,
 	)
@@ -182,11 +191,13 @@ SELECT
     t.template_language,
     t.template_origin_id,
     t.template_synced,
+    t.template_overrides,
     t.template_created_at,
     t.template_updated_at,
     o.template_id AS origin_id,
     o.template_name AS origin_name,
     o.template_payload AS origin_payload,
+    o.template_language AS origin_language,
     ou.discord_user_id AS origin_publisher_id,
     ou.discord_user_username AS origin_publisher_username,
     ou.discord_user_display_name AS origin_publisher_display_name,
@@ -212,11 +223,13 @@ type GetTemplateForUserRow struct {
 	TemplateLanguage           pgtype.Text
 	TemplateOriginID           pgtype.Int8
 	TemplateSynced             bool
+	TemplateOverrides          json.RawMessage
 	TemplateCreatedAt          pgtype.Timestamp
 	TemplateUpdatedAt          pgtype.Timestamp
 	OriginID                   pgtype.Int8
 	OriginName                 pgtype.Text
 	OriginPayload              []byte
+	OriginLanguage             pgtype.Text
 	OriginPublisherID          pgtype.Text
 	OriginPublisherUsername    pgtype.Text
 	OriginPublisherDisplayName pgtype.Text
@@ -236,11 +249,13 @@ func (q *Queries) GetTemplateForUser(ctx context.Context, arg GetTemplateForUser
 		&i.TemplateLanguage,
 		&i.TemplateOriginID,
 		&i.TemplateSynced,
+		&i.TemplateOverrides,
 		&i.TemplateCreatedAt,
 		&i.TemplateUpdatedAt,
 		&i.OriginID,
 		&i.OriginName,
 		&i.OriginPayload,
+		&i.OriginLanguage,
 		&i.OriginPublisherID,
 		&i.OriginPublisherUsername,
 		&i.OriginPublisherDisplayName,
@@ -294,6 +309,7 @@ SELECT
     t.template_language,
     t.template_origin_id,
     t.template_synced,
+    t.template_overrides,
     t.template_created_at,
     t.template_updated_at,
     u.discord_user_id AS publisher_id,
@@ -387,6 +403,7 @@ type ListPublishedTemplatesRow struct {
 	TemplateLanguage           pgtype.Text
 	TemplateOriginID           pgtype.Int8
 	TemplateSynced             bool
+	TemplateOverrides          json.RawMessage
 	TemplateCreatedAt          pgtype.Timestamp
 	TemplateUpdatedAt          pgtype.Timestamp
 	PublisherID                string
@@ -425,6 +442,7 @@ func (q *Queries) ListPublishedTemplates(ctx context.Context, arg ListPublishedT
 			&i.TemplateLanguage,
 			&i.TemplateOriginID,
 			&i.TemplateSynced,
+			&i.TemplateOverrides,
 			&i.TemplateCreatedAt,
 			&i.TemplateUpdatedAt,
 			&i.PublisherID,
@@ -502,11 +520,13 @@ SELECT
     t.template_language,
     t.template_origin_id,
     t.template_synced,
+    t.template_overrides,
     t.template_created_at,
     t.template_updated_at,
     o.template_id AS origin_id,
     o.template_name AS origin_name,
     o.template_payload AS origin_payload,
+    o.template_language AS origin_language,
     ou.discord_user_id AS origin_publisher_id,
     ou.discord_user_username AS origin_publisher_username,
     ou.discord_user_display_name AS origin_publisher_display_name,
@@ -528,11 +548,13 @@ type ListTemplatesByUserRow struct {
 	TemplateLanguage           pgtype.Text
 	TemplateOriginID           pgtype.Int8
 	TemplateSynced             bool
+	TemplateOverrides          json.RawMessage
 	TemplateCreatedAt          pgtype.Timestamp
 	TemplateUpdatedAt          pgtype.Timestamp
 	OriginID                   pgtype.Int8
 	OriginName                 pgtype.Text
 	OriginPayload              []byte
+	OriginLanguage             pgtype.Text
 	OriginPublisherID          pgtype.Text
 	OriginPublisherUsername    pgtype.Text
 	OriginPublisherDisplayName pgtype.Text
@@ -558,11 +580,13 @@ func (q *Queries) ListTemplatesByUser(ctx context.Context, templateDiscordUserID
 			&i.TemplateLanguage,
 			&i.TemplateOriginID,
 			&i.TemplateSynced,
+			&i.TemplateOverrides,
 			&i.TemplateCreatedAt,
 			&i.TemplateUpdatedAt,
 			&i.OriginID,
 			&i.OriginName,
 			&i.OriginPayload,
+			&i.OriginLanguage,
 			&i.OriginPublisherID,
 			&i.OriginPublisherUsername,
 			&i.OriginPublisherDisplayName,
@@ -595,6 +619,7 @@ RETURNING
     template_language,
     template_origin_id,
     template_synced,
+    template_overrides,
     template_created_at,
     template_updated_at
 `
@@ -617,6 +642,7 @@ type PublishTemplateRow struct {
 	TemplateLanguage           pgtype.Text
 	TemplateOriginID           pgtype.Int8
 	TemplateSynced             bool
+	TemplateOverrides          json.RawMessage
 	TemplateCreatedAt          pgtype.Timestamp
 	TemplateUpdatedAt          pgtype.Timestamp
 }
@@ -640,6 +666,7 @@ func (q *Queries) PublishTemplate(ctx context.Context, arg PublishTemplateParams
 		&i.TemplateLanguage,
 		&i.TemplateOriginID,
 		&i.TemplateSynced,
+		&i.TemplateOverrides,
 		&i.TemplateCreatedAt,
 		&i.TemplateUpdatedAt,
 	)
@@ -680,6 +707,83 @@ func (q *Queries) UnlikeTemplate(ctx context.Context, arg UnlikeTemplateParams) 
 	return err
 }
 
+const unlinkTemplate = `-- name: UnlinkTemplate :one
+UPDATE meetup_templates
+SET template_name = $1,
+    template_payload = $2,
+    template_language = $3,
+    template_origin_id = NULL,
+    template_overrides = '{}'::jsonb,
+    template_synced = FALSE,
+    template_updated_at = $6
+WHERE template_id = $4 AND template_discord_user_id = $5
+  AND template_origin_id IS NOT NULL
+RETURNING
+    template_id,
+    template_discord_user_id,
+    template_name,
+    template_payload,
+    template_published_at,
+    template_publish_description,
+    template_language,
+    template_origin_id,
+    template_synced,
+    template_overrides,
+    template_created_at,
+    template_updated_at
+`
+
+type UnlinkTemplateParams struct {
+	TemplateName          string
+	TemplatePayload       json.RawMessage
+	TemplateLanguage      pgtype.Text
+	TemplateID            int64
+	TemplateDiscordUserID string
+	TemplateUpdatedAt     pgtype.Timestamp
+}
+
+type UnlinkTemplateRow struct {
+	TemplateID                 int64
+	TemplateDiscordUserID      string
+	TemplateName               string
+	TemplatePayload            json.RawMessage
+	TemplatePublishedAt        pgtype.Timestamp
+	TemplatePublishDescription pgtype.Text
+	TemplateLanguage           pgtype.Text
+	TemplateOriginID           pgtype.Int8
+	TemplateSynced             bool
+	TemplateOverrides          json.RawMessage
+	TemplateCreatedAt          pgtype.Timestamp
+	TemplateUpdatedAt          pgtype.Timestamp
+}
+
+func (q *Queries) UnlinkTemplate(ctx context.Context, arg UnlinkTemplateParams) (UnlinkTemplateRow, error) {
+	row := q.db.QueryRow(ctx, unlinkTemplate,
+		arg.TemplateName,
+		arg.TemplatePayload,
+		arg.TemplateLanguage,
+		arg.TemplateID,
+		arg.TemplateDiscordUserID,
+		arg.TemplateUpdatedAt,
+	)
+	var i UnlinkTemplateRow
+	err := row.Scan(
+		&i.TemplateID,
+		&i.TemplateDiscordUserID,
+		&i.TemplateName,
+		&i.TemplatePayload,
+		&i.TemplatePublishedAt,
+		&i.TemplatePublishDescription,
+		&i.TemplateLanguage,
+		&i.TemplateOriginID,
+		&i.TemplateSynced,
+		&i.TemplateOverrides,
+		&i.TemplateCreatedAt,
+		&i.TemplateUpdatedAt,
+	)
+	return i, err
+}
+
 const unpublishTemplate = `-- name: UnpublishTemplate :one
 UPDATE meetup_templates
 SET template_published_at = NULL,
@@ -695,6 +799,7 @@ RETURNING
     template_language,
     template_origin_id,
     template_synced,
+    template_overrides,
     template_created_at,
     template_updated_at
 `
@@ -715,6 +820,7 @@ type UnpublishTemplateRow struct {
 	TemplateLanguage           pgtype.Text
 	TemplateOriginID           pgtype.Int8
 	TemplateSynced             bool
+	TemplateOverrides          json.RawMessage
 	TemplateCreatedAt          pgtype.Timestamp
 	TemplateUpdatedAt          pgtype.Timestamp
 }
@@ -732,6 +838,7 @@ func (q *Queries) UnpublishTemplate(ctx context.Context, arg UnpublishTemplatePa
 		&i.TemplateLanguage,
 		&i.TemplateOriginID,
 		&i.TemplateSynced,
+		&i.TemplateOverrides,
 		&i.TemplateCreatedAt,
 		&i.TemplateUpdatedAt,
 	)
@@ -743,9 +850,10 @@ UPDATE meetup_templates
 SET template_name = $1,
     template_payload = $2,
     template_language = $3,
-    template_synced = FALSE,
-    template_updated_at = $6
-WHERE template_id = $4 AND template_discord_user_id = $5
+    template_overrides = $4,
+    template_synced = $5,
+    template_updated_at = $8
+WHERE template_id = $6 AND template_discord_user_id = $7
 RETURNING
     template_id,
     template_discord_user_id,
@@ -756,6 +864,7 @@ RETURNING
     template_language,
     template_origin_id,
     template_synced,
+    template_overrides,
     template_created_at,
     template_updated_at
 `
@@ -764,6 +873,8 @@ type UpdateTemplateParams struct {
 	TemplateName          string
 	TemplatePayload       json.RawMessage
 	TemplateLanguage      pgtype.Text
+	TemplateOverrides     json.RawMessage
+	TemplateSynced        bool
 	TemplateID            int64
 	TemplateDiscordUserID string
 	TemplateUpdatedAt     pgtype.Timestamp
@@ -779,6 +890,7 @@ type UpdateTemplateRow struct {
 	TemplateLanguage           pgtype.Text
 	TemplateOriginID           pgtype.Int8
 	TemplateSynced             bool
+	TemplateOverrides          json.RawMessage
 	TemplateCreatedAt          pgtype.Timestamp
 	TemplateUpdatedAt          pgtype.Timestamp
 }
@@ -788,6 +900,8 @@ func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) 
 		arg.TemplateName,
 		arg.TemplatePayload,
 		arg.TemplateLanguage,
+		arg.TemplateOverrides,
+		arg.TemplateSynced,
 		arg.TemplateID,
 		arg.TemplateDiscordUserID,
 		arg.TemplateUpdatedAt,
@@ -803,6 +917,7 @@ func (q *Queries) UpdateTemplate(ctx context.Context, arg UpdateTemplateParams) 
 		&i.TemplateLanguage,
 		&i.TemplateOriginID,
 		&i.TemplateSynced,
+		&i.TemplateOverrides,
 		&i.TemplateCreatedAt,
 		&i.TemplateUpdatedAt,
 	)

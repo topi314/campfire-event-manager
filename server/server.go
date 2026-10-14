@@ -95,6 +95,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /api/templates/{id}/publish", s.requireAuth(s.publishTemplate))
 	mux.HandleFunc("POST /api/templates/{id}/unpublish", s.requireAuth(s.unpublishTemplate))
 	mux.HandleFunc("POST /api/templates/{id}/clone", s.requireAuth(s.cloneTemplate))
+	mux.HandleFunc("POST /api/templates/{id}/unlink", s.requireAuth(s.unlinkTemplate))
 	mux.HandleFunc("POST /api/templates/{id}/like", s.requireAuth(s.likeTemplate))
 	mux.HandleFunc("DELETE /api/templates/{id}/like", s.requireAuth(s.unlikeTemplate))
 	mux.HandleFunc("GET /api/profiles/{userId}", s.requireAuth(s.getProfile))

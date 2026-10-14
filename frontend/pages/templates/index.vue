@@ -27,6 +27,7 @@ const error = ref("");
 const success = ref("");
 const importing = ref(false);
 const publishingId = ref<number | null>(null);
+const unlinkingId = ref<number | null>(null);
 const publishTarget = ref<MeetupTemplate | null>(null);
 const publishDescription = ref("");
 const preview = ref<MeetupTemplate | null>(null);
@@ -177,12 +178,39 @@ async function remove(id: number) {
 }
 
 function openPublishModal(t: MeetupTemplate) {
+  if (t.origin) {
+    error.value = "Unlink from the original before publishing";
+    success.value = "";
+    return;
+  }
   publishTarget.value = t;
   publishDescription.value = (t.publishDescription || "").trim();
   error.value = "";
   success.value = "";
   if (!(t.language || "").trim()) {
     error.value = "Set a language on the template (edit) before publishing";
+  }
+}
+
+async function unlinkFromOriginal(t: MeetupTemplate) {
+  if (!t.origin || unlinkingId.value) return;
+  const ok = window.confirm(
+    "Unlink from original? This copy will keep its current values and no longer follow updates.",
+  );
+  if (!ok) return;
+  unlinkingId.value = t.id;
+  error.value = "";
+  try {
+    await api(`/api/templates/${t.id}/unlink`, { method: "POST" });
+    await load();
+    if (preview.value?.id === t.id) {
+      preview.value = templates.value.find((x) => x.id === t.id) || null;
+    }
+    toast.success("Unlinked from original", t.name || undefined);
+  } catch (e: any) {
+    error.value = e.message || "Failed to unlink template";
+  } finally {
+    unlinkingId.value = null;
   }
 }
 
@@ -454,7 +482,6 @@ function downloadMany() {
                 <strong class="mine-name">{{ t.name }}</strong>
                 <span v-if="t.publishedAt" class="badge">Published</span>
                 <span v-if="t.origin && t.synced" class="badge synced">Synced</span>
-                <span v-else-if="t.origin && !t.synced" class="badge unsynced">Unsynced</span>
                 <span v-if="categoryLabel(t)" class="cat-badge">{{ categoryLabel(t) }}</span>
                 <span v-if="t.language" class="cat-badge">{{ templateLanguageLabel(t.language) }}</span>
               </div>
@@ -493,7 +520,18 @@ function downloadMany() {
                 <Icon name="edit" />
               </button>
               <button
-                v-if="!t.publishedAt"
+                v-if="t.origin"
+                type="button"
+                class="icon-btn"
+                title="Unlink from original"
+                aria-label="Unlink from original"
+                :disabled="unlinkingId === t.id"
+                @click="unlinkFromOriginal(t)"
+              >
+                <Icon name="unlink" />
+              </button>
+              <button
+                v-if="!t.origin && !t.publishedAt"
                 type="button"
                 class="icon-btn"
                 title="Publish"
@@ -503,7 +541,7 @@ function downloadMany() {
               >
                 <Icon name="publish" />
               </button>
-              <template v-else>
+              <template v-else-if="!t.origin && t.publishedAt">
                 <button
                   type="button"
                   class="icon-btn"
@@ -719,11 +757,6 @@ function downloadMany() {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   color: var(--muted);
   background: color-mix(in srgb, var(--accent) 12%, var(--bg));
-}
-.badge.unsynced {
-  border-color: var(--border);
-  color: var(--muted);
-  background: var(--bg);
 }
 .cat-badge {
   font-size: 0.7rem;

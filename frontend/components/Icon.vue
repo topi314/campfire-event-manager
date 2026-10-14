@@ -6,6 +6,7 @@ export type IconName =
   | "share"
   | "publish"
   | "unpublish"
+  | "unlink"
   | "export"
   | "import"
   | "add"
@@ -128,6 +129,30 @@ defineProps<{
         stroke-linejoin="round"
       />
       <circle cx="12" cy="12" r="2.4" stroke="currentColor" stroke-width="1.75" />
+      <path
+        d="m4.5 4.5 15 15"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+      />
+    </template>
+
+    <!-- Unlink from original (broken chain) -->
+    <template v-else-if="name === 'unlink'">
+      <path
+        d="M9.5 14.5a3.5 3.5 0 0 1 0-5l2.2-2.2a3.5 3.5 0 0 1 5 5L15.5 13.5"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <path
+        d="M14.5 9.5a3.5 3.5 0 0 1 0 5L12.3 16.7a3.5 3.5 0 0 1-5-5L8.5 10.5"
+        stroke="currentColor"
+        stroke-width="1.75"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
       <path
         d="m4.5 4.5 15 15"
         stroke="currentColor"

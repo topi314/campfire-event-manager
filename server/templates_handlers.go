@@ -17,9 +17,10 @@ import (
 )
 
 type templateBody struct {
-	Name     string          `json:"name"`
-	Payload  json.RawMessage `json:"payload"`
-	Language string          `json:"language"`
+	Name             string          `json:"name"`
+	Payload          json.RawMessage `json:"payload"`
+	Language         string          `json:"language"`
+	OverriddenFields []string        `json:"overriddenFields"`
 }
 
 func (s *Server) listTemplates(w http.ResponseWriter, r *http.Request) {
@@ -87,13 +88,16 @@ func (s *Server) createTemplateRow(ctx context.Context, userID, name string, pay
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
+	overrides := json.RawMessage(`{}`)
+	synced := originID != nil
 	now := time.Now().UTC()
 	row, err := s.db.CreateTemplate(ctx, dbsqlc.CreateTemplateParams{
 		TemplateDiscordUserID: userID,
 		TemplateName:          name,
 		TemplatePayload:       payload,
 		TemplateOriginID:      database.Int8Ptr(originID),
-		TemplateSynced:        originID != nil,
+		TemplateSynced:        synced,
+		TemplateOverrides:     overrides,
 		TemplateLanguage:      database.Text(languages.Normalize(language)),
 		TemplateCreatedAt:     database.Ts(now),
 		TemplateUpdatedAt:     database.Ts(now),
@@ -101,7 +105,17 @@ func (s *Server) createTemplateRow(ctx context.Context, userID, name string, pay
 	if err != nil {
 		return MeetupTemplate{}, err
 	}
-	return templateFromCreate(row), nil
+	t := templateFromCreate(row)
+	if originID != nil {
+		full, err := s.db.GetTemplateForUser(ctx, dbsqlc.GetTemplateForUserParams{
+			TemplateID:            t.ID,
+			TemplateDiscordUserID: userID,
+		})
+		if err == nil {
+			return templateWithOriginGet(full), nil
+		}
+	}
+	return t, nil
 }
 
 func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
@@ -129,11 +143,49 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
 	if len(body.Payload) == 0 {
 		body.Payload = json.RawMessage(`{}`)
 	}
+
+	existing, err := s.db.GetTemplateForUser(r.Context(), dbsqlc.GetTemplateForUserParams{
+		TemplateID:            id,
+		TemplateDiscordUserID: session.Session.UserID,
+	})
+	if err != nil {
+		if database.IsNotFound(err) {
+			writeError(w, http.StatusNotFound, "template not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load template")
+		return
+	}
+
+	name := body.Name
+	payload := body.Payload
+	overrides := json.RawMessage(`{}`)
+	synced := false
+	if existing.TemplateOriginID.Valid {
+		built, err := buildOverridesFromFields(body.OverriddenFields, body.Name, lang, body.Payload)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid overrides")
+			return
+		}
+		overrides = built
+		synced = isEmptyOverrides(overrides)
+		// Keep a materialized snapshot for fallback if the origin disappears.
+		originLang := stringPtr(existing.OriginLanguage)
+		merged := mergeLinkedTemplate(
+			body.Name, &lang, body.Payload, overrides,
+			textString(existing.OriginName), originLang, json.RawMessage(existing.OriginPayload),
+			existing.OriginID.Valid,
+		)
+		name, lang, payload = materializeEffective(merged)
+	}
+
 	now := time.Now().UTC()
-	row, err := s.db.UpdateTemplate(r.Context(), dbsqlc.UpdateTemplateParams{
-		TemplateName:          body.Name,
-		TemplatePayload:       body.Payload,
+	_, err = s.db.UpdateTemplate(r.Context(), dbsqlc.UpdateTemplateParams{
+		TemplateName:          name,
+		TemplatePayload:       payload,
 		TemplateLanguage:      database.Text(lang),
+		TemplateOverrides:     overrides,
+		TemplateSynced:        synced,
 		TemplateID:            id,
 		TemplateDiscordUserID: session.Session.UserID,
 		TemplateUpdatedAt:     database.Ts(now),
@@ -146,7 +198,15 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update template")
 		return
 	}
-	writeJSON(w, http.StatusOK, templateFromUpdate(row))
+	full, err := s.db.GetTemplateForUser(r.Context(), dbsqlc.GetTemplateForUserParams{
+		TemplateID:            id,
+		TemplateDiscordUserID: session.Session.UserID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load template")
+		return
+	}
+	writeJSON(w, http.StatusOK, templateWithOriginGet(full))
 }
 
 func (s *Server) deleteTemplate(w http.ResponseWriter, r *http.Request) {
@@ -225,6 +285,10 @@ func (s *Server) setTemplatePublish(w http.ResponseWriter, r *http.Request, publ
 		}
 		if language == "" {
 			writeError(w, http.StatusBadRequest, "set a language on the template before publishing")
+			return
+		}
+		if existing.TemplateOriginID.Valid {
+			writeError(w, http.StatusBadRequest, "unlink from the original before publishing")
 			return
 		}
 		row, err := s.db.PublishTemplate(r.Context(), dbsqlc.PublishTemplateParams{
@@ -359,16 +423,69 @@ func (s *Server) cloneTemplate(w http.ResponseWriter, r *http.Request) {
 	if src.OriginID != nil {
 		originID = *src.OriginID
 	}
-	payload := src.Payload
-	if src.PublishedAt != nil {
-		payload = stripSharedFieldsFromPayload(src.Payload)
-	}
-	t, err := s.createTemplateRow(r.Context(), session.Session.UserID, src.Name, payload, ptrString(src.Language), &originID)
+	// Snapshot name/language/payload for fallback; live values come from origin while linked.
+	t, err := s.createTemplateRow(
+		r.Context(),
+		session.Session.UserID,
+		src.Name,
+		src.Payload,
+		ptrString(src.Language),
+		&originID,
+	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to clone template")
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+func (s *Server) unlinkTemplate(w http.ResponseWriter, r *http.Request) {
+	session, _ := auth.GetSession(r)
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	existing, err := s.db.GetTemplateForUser(r.Context(), dbsqlc.GetTemplateForUserParams{
+		TemplateID:            id,
+		TemplateDiscordUserID: session.Session.UserID,
+	})
+	if err != nil {
+		if database.IsNotFound(err) {
+			writeError(w, http.StatusNotFound, "template not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load template")
+		return
+	}
+	if !existing.TemplateOriginID.Valid {
+		writeError(w, http.StatusBadRequest, "template is not linked to an original")
+		return
+	}
+	linked := templateWithOriginGet(existing)
+	name, lang, payload := materializeEffective(mergedTemplate{
+		Name:     linked.Name,
+		Language: linked.Language,
+		Payload:  linked.Payload,
+	})
+	now := time.Now().UTC()
+	row, err := s.db.UnlinkTemplate(r.Context(), dbsqlc.UnlinkTemplateParams{
+		TemplateName:          name,
+		TemplatePayload:       payload,
+		TemplateLanguage:      database.Text(lang),
+		TemplateID:            id,
+		TemplateDiscordUserID: session.Session.UserID,
+		TemplateUpdatedAt:     database.Ts(now),
+	})
+	if err != nil {
+		if database.IsNotFound(err) {
+			writeError(w, http.StatusNotFound, "template not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to unlink template")
+		return
+	}
+	writeJSON(w, http.StatusOK, templateFromUnlink(row))
 }
 
 func ptrString(p *string) string {
@@ -502,10 +619,31 @@ func (s *Server) importTemplates(w http.ResponseWriter, r *http.Request) {
 					lang = languages.Normalize(existingLang)
 				}
 				now := time.Now().UTC()
+				cur, err := s.db.GetTemplateForUser(r.Context(), dbsqlc.GetTemplateForUserParams{
+					TemplateID:            entry.ID,
+					TemplateDiscordUserID: session.Session.UserID,
+				})
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "failed to load template")
+					return
+				}
+				overrides := json.RawMessage(`{}`)
+				synced := false
+				if cur.TemplateOriginID.Valid {
+					// Keep the import as local overrides so it is not wiped by origin merge.
+					built, err := buildOverridesFromFields(allOverrideFieldIDs(), name, lang, payload)
+					if err != nil {
+						writeError(w, http.StatusInternalServerError, "failed to build overrides")
+						return
+					}
+					overrides = built
+				}
 				row, err := s.db.UpdateTemplate(r.Context(), dbsqlc.UpdateTemplateParams{
 					TemplateName:          name,
 					TemplatePayload:       payload,
 					TemplateLanguage:      database.Text(lang),
+					TemplateOverrides:     overrides,
+					TemplateSynced:        synced,
 					TemplateID:            entry.ID,
 					TemplateDiscordUserID: session.Session.UserID,
 					TemplateUpdatedAt:     database.Ts(now),

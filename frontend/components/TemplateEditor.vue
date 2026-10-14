@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import type { Club, ClubDiscordSettings, MeetupPayload, TemplatePlaceholder } from "~/types";
+import type {
+  Club,
+  ClubDiscordSettings,
+  MeetupPayload,
+  TemplateOrigin,
+  TemplatePlaceholder,
+} from "~/types";
 import type { LatLngPoint } from "~/components/LocationPicker.vue";
 import {
   extractPlaceholdersFromValue,
@@ -21,6 +27,10 @@ import {
   isTemplateLanguageCode,
   type TemplateLanguageCode,
 } from "~/utils/languages";
+import {
+  snapshotFromOrigin,
+  type OverrideFieldId,
+} from "~/utils/templateOverrides";
 
 const { options: TEMPLATE_CATEGORY_OPTIONS, isOption: isTemplateCategoryOption } =
   useEventCategories();
@@ -30,6 +40,8 @@ const props = withDefaults(
     modelValue?: MeetupPayload | null;
     templateName?: string;
     templateLanguage?: string | null;
+    origin?: TemplateOrigin | null;
+    overriddenFields?: string[] | null;
     saving?: boolean;
     submitLabel?: string;
   }>(),
@@ -37,13 +49,22 @@ const props = withDefaults(
     modelValue: null,
     templateName: "",
     templateLanguage: null,
+    origin: null,
+    overriddenFields: null,
     saving: false,
     submitLabel: "Save template",
   },
 );
 
 const emit = defineEmits<{
-  save: [data: { name: string; payload: MeetupPayload; language: TemplateLanguageCode }];
+  save: [
+    data: {
+      name: string;
+      payload: MeetupPayload;
+      language: TemplateLanguageCode;
+      overriddenFields: string[];
+    },
+  ];
   cancel: [];
 }>();
 
@@ -53,6 +74,89 @@ const { preferredLanguage, preferredClubId } = usePreferences();
 const clubs = ref<Club[]>([]);
 /** Club whose Discord channels feed the channel picker (not required for Campfire create). */
 const selectedDiscordClubId = ref("");
+
+const linked = computed(() => !!props.origin?.id);
+const overridden = ref<Set<string>>(new Set());
+let suppressOverrideMark = false;
+
+function isOverridden(field: OverrideFieldId) {
+  return linked.value && overridden.value.has(field);
+}
+
+function markField(field: OverrideFieldId) {
+  if (!linked.value || suppressOverrideMark) return;
+  if (overridden.value.has(field)) return;
+  const next = new Set(overridden.value);
+  next.add(field);
+  overridden.value = next;
+}
+
+function resetField(field: OverrideFieldId) {
+  if (!props.origin) return;
+  const snap = snapshotFromOrigin(props.origin, preferredLanguage.value);
+  suppressOverrideMark = true;
+  try {
+    switch (field) {
+      case "name":
+        name.value = snap.name;
+        break;
+      case "language":
+        language.value = isTemplateLanguageCode(String(snap.language))
+          ? (snap.language as TemplateLanguageCode)
+          : preferredLanguage.value;
+        break;
+      case "title":
+        form.title = snap.title;
+        break;
+      case "details":
+        form.details = snap.details;
+        break;
+      case "category":
+        form.category = snap.category;
+        categoryCustomMode.value =
+          !!snap.category && !isTemplateCategoryOption(snap.category);
+        break;
+      case "coverPhotoUrl":
+        form.coverPhotoUrl = snap.coverPhotoUrl;
+        break;
+      case "commentsPermissions":
+        form.commentsPermissions = snap.commentsPermissions;
+        break;
+      case "allInvited":
+        form.allInvited = snap.allInvited;
+        break;
+      case "createdByCommunityAmbassador":
+        form.createdByCommunityAmbassador = snap.createdByCommunityAmbassador;
+        break;
+      case "placeholders":
+        placeholderMeta.value = snap.placeholders.map((ph) => ({ ...ph }));
+        break;
+      case "location":
+        form.address = snap.address;
+        form.locationJitterMeters = snap.locationJitterMeters;
+        location.value = snap.location ? { ...snap.location } : null;
+        break;
+      case "schedule":
+        form.startTime = snap.startTime;
+        form.endTime = snap.endTime;
+        break;
+      case "discord":
+        form.discordChannelId = snap.discordChannelId;
+        selectedDiscordClubId.value = pickDefaultDiscordClubId(
+          clubs.value,
+          snap.discordClubId,
+        );
+        break;
+    }
+  } finally {
+    nextTick(() => {
+      suppressOverrideMark = false;
+    });
+  }
+  const next = new Set(overridden.value);
+  next.delete(field);
+  overridden.value = next;
+}
 
 function pickDefaultDiscordClubId(list: Club[], preferredStored?: string): string {
   const preferred = (preferredStored || preferredClubId.value || "").trim();
@@ -124,6 +228,7 @@ const selectedDiscordPreloaded = computed(
 function onDiscordClubChange(event: Event) {
   selectedDiscordClubId.value = (event.target as HTMLSelectElement).value;
   form.discordChannelId = "";
+  markField("discord");
 }
 
 function onTemplateDiscordLoaded(settings: ClubDiscordSettings) {
@@ -149,6 +254,7 @@ const showCustomCategory = computed(
 
 function onCategorySelect(event: Event) {
   const v = (event.target as HTMLSelectElement).value;
+  markField("category");
   if (v === CATEGORY_SELECT_CUSTOM) {
     categoryCustomMode.value = true;
     if (!form.category.trim() || isTemplateCategoryOption(form.category.trim())) {
@@ -183,12 +289,21 @@ watch(detectedKeys, (keys) => {
 });
 
 watch(
-  () => [props.modelValue, props.templateName, props.templateLanguage] as const,
+  () =>
+    [
+      props.modelValue,
+      props.templateName,
+      props.templateLanguage,
+      props.overriddenFields,
+      props.origin?.id,
+    ] as const,
   () => loadFromProps(),
   { immediate: true, deep: true },
 );
 
 function loadFromProps() {
+  suppressOverrideMark = true;
+  overridden.value = new Set(props.overriddenFields || []);
   name.value = props.templateName || "";
   language.value = isTemplateLanguageCode(props.templateLanguage || "")
     ? (props.templateLanguage as TemplateLanguageCode)
@@ -212,6 +327,9 @@ function loadFromProps() {
     timeError.value = "";
     placeholderMeta.value = [];
     selectedDiscordClubId.value = pickDefaultDiscordClubId(clubs.value);
+    nextTick(() => {
+      suppressOverrideMark = false;
+    });
     return;
   }
   form.title = p.name || "";
@@ -250,10 +368,14 @@ function loadFromProps() {
     label: ph.label || "",
     default: ph.default || "",
   }));
+  nextTick(() => {
+    suppressOverrideMark = false;
+  });
 }
 
 function onPlaceSelected(place: { lat: number; lng: number; label?: string }) {
   if (place.label) form.address = place.label;
+  markField("location");
 }
 
 watch(
@@ -324,7 +446,12 @@ function onSubmit() {
   }
   timeError.value = "";
   const tplName = name.value.trim() || form.title.trim() || "Untitled template";
-  emit("save", { name: tplName, payload: buildPayload(), language: language.value });
+  emit("save", {
+    name: tplName,
+    payload: buildPayload(),
+    language: language.value,
+    overriddenFields: linked.value ? [...overridden.value].sort() : [],
+  });
 }
 </script>
 
@@ -332,12 +459,35 @@ function onSubmit() {
   <form class="template-editor" @submit.prevent="onSubmit">
     <div class="setup-grid">
       <div class="field">
-        <label for="tpl-name">Template name</label>
-        <input id="tpl-name" v-model="name" type="text" required placeholder="e.g. Community Day" />
+        <div class="field-label-row">
+          <label for="tpl-name">Template name</label>
+          <span v-if="isOverridden('name')" class="override-tools">
+            <span class="override-badge">Custom</span>
+            <button type="button" class="linkish" @click="resetField('name')">
+              Reset to original
+            </button>
+          </span>
+        </div>
+        <input
+          id="tpl-name"
+          v-model="name"
+          type="text"
+          required
+          placeholder="e.g. Community Day"
+          @input="markField('name')"
+        />
       </div>
 
       <div class="field">
-        <label for="tpl-category">Live event category</label>
+        <div class="field-label-row">
+          <label for="tpl-category">Live event category</label>
+          <span v-if="isOverridden('category')" class="override-tools">
+            <span class="override-badge">Custom</span>
+            <button type="button" class="linkish" @click="resetField('category')">
+              Reset to original
+            </button>
+          </span>
+        </div>
         <select
           id="tpl-category"
           :value="categorySelectValue"
@@ -358,12 +508,21 @@ function onSubmit() {
           placeholder="Custom category name"
           style="margin-top: 0.45rem"
           aria-label="Custom live event category"
+          @input="markField('category')"
         />
       </div>
 
       <div class="field">
-        <label for="tpl-language">Language</label>
-        <select id="tpl-language" v-model="language" required>
+        <div class="field-label-row">
+          <label for="tpl-language">Language</label>
+          <span v-if="isOverridden('language')" class="override-tools">
+            <span class="override-badge">Custom</span>
+            <button type="button" class="linkish" @click="resetField('language')">
+              Reset to original
+            </button>
+          </span>
+        </div>
+        <select id="tpl-language" v-model="language" required @change="markField('language')">
           <option v-for="l in TEMPLATE_LANGUAGES" :key="l.code" :value="l.code">
             {{ l.label }}
           </option>
@@ -372,7 +531,15 @@ function onSubmit() {
     </div>
 
     <div v-if="placeholderMeta.length" class="field">
-      <label>Custom placeholders</label>
+      <div class="field-label-row">
+        <label>Custom placeholders</label>
+        <span v-if="isOverridden('placeholders')" class="override-tools">
+          <span class="override-badge">Custom</span>
+          <button type="button" class="linkish" @click="resetField('placeholders')">
+            Reset to original
+          </button>
+        </span>
+      </div>
       <div class="placeholder-fill placeholder-grid">
         <p class="hint muted" style="grid-column: 1 / -1; margin: 0">
           Label + default for create
@@ -384,8 +551,15 @@ function onSubmit() {
             type="text"
             :placeholder="humanizePlaceholderKey(ph.key)"
             aria-label="Label"
+            @input="markField('placeholders')"
           />
-          <input v-model="ph.default" type="text" placeholder="Default value" aria-label="Default" />
+          <input
+            v-model="ph.default"
+            type="text"
+            placeholder="Default value"
+            aria-label="Default"
+            @input="markField('placeholders')"
+          />
         </div>
       </div>
     </div>
@@ -397,39 +571,74 @@ function onSubmit() {
         </div>
 
         <div class="field">
-          <label for="tpl-title">Title</label>
+          <div class="field-label-row">
+            <label for="tpl-title">Title</label>
+            <span v-if="isOverridden('title')" class="override-tools">
+              <span class="override-badge">Custom</span>
+              <button type="button" class="linkish" @click="resetField('title')">
+                Reset to original
+              </button>
+            </span>
+          </div>
           <PlaceholderTextField
             id="tpl-title"
             v-model="form.title"
             required
             :placeholder="'{{liveEvent}} — {{city}}'"
+            @update:model-value="markField('title')"
           />
         </div>
 
         <div class="field field-details">
-          <label for="tpl-details">Description</label>
+          <div class="field-label-row">
+            <label for="tpl-details">Description</label>
+            <span v-if="isOverridden('details')" class="override-tools">
+              <span class="override-badge">Custom</span>
+              <button type="button" class="linkish" @click="resetField('details')">
+                Reset to original
+              </button>
+            </span>
+          </div>
           <PlaceholderTextField
             id="tpl-details"
             v-model="form.details"
             multiline
             :rows="10"
+            @update:model-value="markField('details')"
           />
           <PlaceholderHelp compact />
         </div>
 
-        <div class="row-2">
-          <div class="field">
-            <label for="tpl-start">Start time</label>
-            <input id="tpl-start" v-model="form.startTime" type="time" />
+        <div class="field">
+          <div class="field-label-row">
+            <span class="label-text">Schedule</span>
+            <span v-if="isOverridden('schedule')" class="override-tools">
+              <span class="override-badge">Custom</span>
+              <button type="button" class="linkish" @click="resetField('schedule')">
+                Reset to original
+              </button>
+            </span>
           </div>
-          <div class="field">
-            <label for="tpl-end">End time</label>
-            <input
-              id="tpl-end"
-              v-model="form.endTime"
-              type="time"
-              :min="form.startTime || undefined"
-            />
+          <div class="row-2">
+            <div class="field" style="margin-bottom: 0">
+              <label for="tpl-start">Start time</label>
+              <input
+                id="tpl-start"
+                v-model="form.startTime"
+                type="time"
+                @change="markField('schedule')"
+              />
+            </div>
+            <div class="field" style="margin-bottom: 0">
+              <label for="tpl-end">End time</label>
+              <input
+                id="tpl-end"
+                v-model="form.endTime"
+                type="time"
+                :min="form.startTime || undefined"
+                @change="markField('schedule')"
+              />
+            </div>
           </div>
         </div>
         <p v-if="timeError" class="hint" style="margin-top: -0.35rem; color: var(--danger, #b00020)">
@@ -440,68 +649,138 @@ function onSubmit() {
         </p>
 
         <div class="field">
-          <label>Who to invite</label>
+          <div class="field-label-row">
+            <label>Who to invite</label>
+            <span v-if="isOverridden('allInvited')" class="override-tools">
+              <span class="override-badge">Custom</span>
+              <button type="button" class="linkish" @click="resetField('allInvited')">
+                Reset to original
+              </button>
+            </span>
+          </div>
           <InvitePicker
             :all-invited="form.allInvited"
-            @update:all-invited="form.allInvited = $event"
+            @update:all-invited="
+              form.allInvited = $event;
+              markField('allInvited');
+            "
           />
           <p class="hint muted">Everybody = whole club; Nobody = unlisted</p>
         </div>
 
         <div class="field">
-          <label>Who can comment</label>
-          <CommentsPermissionsPicker v-model="form.commentsPermissions" />
+          <div class="field-label-row">
+            <label>Who can comment</label>
+            <span v-if="isOverridden('commentsPermissions')" class="override-tools">
+              <span class="override-badge">Custom</span>
+              <button type="button" class="linkish" @click="resetField('commentsPermissions')">
+                Reset to original
+              </button>
+            </span>
+          </div>
+          <CommentsPermissionsPicker
+            v-model="form.commentsPermissions"
+            @update:model-value="markField('commentsPermissions')"
+          />
         </div>
 
-        <div class="row-2">
-          <div class="field">
-            <label for="tpl-discord-club">Discord club</label>
-            <select
-              id="tpl-discord-club"
-              :value="selectedDiscordClubId"
-              :disabled="!clubs.length"
-              @change="onDiscordClubChange"
-            >
-              <option v-if="!clubs.length" value="">
-                {{ token ? "No admin clubs" : "Campfire token required" }}
-              </option>
-              <option v-for="c in clubs" :key="c.id" :value="c.id">
-                {{ c.name }}
-              </option>
-            </select>
+        <div class="field">
+          <div class="field-label-row">
+            <span class="label-text">Discord</span>
+            <span v-if="isOverridden('discord')" class="override-tools">
+              <span class="override-badge">Custom</span>
+              <button type="button" class="linkish" @click="resetField('discord')">
+                Reset to original
+              </button>
+            </span>
           </div>
-          <div class="field">
-            <label>Discord channel</label>
-            <DiscordChannelPicker
-              v-model="form.discordChannelId"
-              :club-id="selectedDiscordClubId"
-              :preloaded="selectedDiscordPreloaded"
-              hint="Optional · from the club’s Discord integration"
-              @loaded="onTemplateDiscordLoaded"
-            />
+          <div class="row-2">
+            <div class="field" style="margin-bottom: 0">
+              <label for="tpl-discord-club">Discord club</label>
+              <select
+                id="tpl-discord-club"
+                :value="selectedDiscordClubId"
+                :disabled="!clubs.length"
+                @change="onDiscordClubChange"
+              >
+                <option v-if="!clubs.length" value="">
+                  {{ token ? "No admin clubs" : "Campfire token required" }}
+                </option>
+                <option v-for="c in clubs" :key="c.id" :value="c.id">
+                  {{ c.name }}
+                </option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom: 0">
+              <label>Discord channel</label>
+              <DiscordChannelPicker
+                v-model="form.discordChannelId"
+                :club-id="selectedDiscordClubId"
+                :preloaded="selectedDiscordPreloaded"
+                hint="Optional · from the club’s Discord integration"
+                @loaded="onTemplateDiscordLoaded"
+                @update:model-value="markField('discord')"
+              />
+            </div>
           </div>
         </div>
 
         <div class="field">
-          <label class="check">
-            <input v-model="form.createdByCommunityAmbassador" type="checkbox" />
-            Mark as Community Ambassador event
-          </label>
+          <div class="field-label-row">
+            <label class="check">
+              <input
+                v-model="form.createdByCommunityAmbassador"
+                type="checkbox"
+                @change="markField('createdByCommunityAmbassador')"
+              />
+              Mark as Community Ambassador event
+            </label>
+            <span v-if="isOverridden('createdByCommunityAmbassador')" class="override-tools">
+              <span class="override-badge">Custom</span>
+              <button
+                type="button"
+                class="linkish"
+                @click="resetField('createdByCommunityAmbassador')"
+              >
+                Reset to original
+              </button>
+            </span>
+          </div>
         </div>
       </div>
 
       <div class="editor-side">
         <div class="field">
-          <label>Cover photo (optional)</label>
-          <CoverPhotoField v-model="form.coverPhotoUrl" />
+          <div class="field-label-row">
+            <label>Cover photo (optional)</label>
+            <span v-if="isOverridden('coverPhotoUrl')" class="override-tools">
+              <span class="override-badge">Custom</span>
+              <button type="button" class="linkish" @click="resetField('coverPhotoUrl')">
+                Reset to original
+              </button>
+            </span>
+          </div>
+          <CoverPhotoField
+            v-model="form.coverPhotoUrl"
+            @update:model-value="markField('coverPhotoUrl')"
+          />
         </div>
         <div class="field" style="margin-bottom: 0">
-          <label>Location</label>
+          <div class="field-label-row">
+            <label>Location</label>
+            <span v-if="isOverridden('location')" class="override-tools">
+              <span class="override-badge">Custom</span>
+              <button type="button" class="linkish" @click="resetField('location')">
+                Reset to original
+              </button>
+            </span>
+          </div>
           <ClientOnly>
             <LocationPicker
               v-model="location"
               :jitter-meters="form.locationJitterMeters"
               @place="onPlaceSelected"
+              @update:model-value="markField('location')"
             >
               <template #meta>
                 <div class="jitter-inline">
@@ -516,6 +795,7 @@ function onSubmit() {
                     max="500"
                     step="5"
                     title="Random radius in meters around the pin. 0 keeps the exact coordinates."
+                    @change="markField('location')"
                   />
                 </div>
               </template>
@@ -531,6 +811,7 @@ function onSubmit() {
               v-model="form.address"
               type="text"
               placeholder="Optional — from place search"
+              @input="markField('location')"
             />
           </div>
         </div>
@@ -697,6 +978,47 @@ function onSubmit() {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 1.25rem;
+}
+.field-label-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  margin-bottom: 0.2rem;
+}
+.field-label-row label,
+.field-label-row .label-text {
+  margin-bottom: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.override-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+}
+.override-badge {
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #3d7eff) 18%, transparent);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.linkish {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent, #3d7eff);
+  cursor: pointer;
+  font: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+}
+.linkish:hover {
+  filter: brightness(1.08);
 }
 @media (max-width: 900px) {
   .setup-grid {

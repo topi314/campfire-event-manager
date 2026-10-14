@@ -283,8 +283,8 @@ function isHighlight(t: MeetupTemplate) {
         <p class="muted">
           Published templates from other Community Ambassadors. Add a copy to
           <NuxtLink to="/templates">My templates</NuxtLink>
-          — it stays synced with the original until you edit it. Location, invites,
-          and comments are not included. Filters stay in the URL so you can share them.
+          — it stays synced with the original until you change fields (or unlink).
+          Filters stay in the URL so you can share them.
         </p>
       </div>
 

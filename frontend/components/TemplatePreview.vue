@@ -98,8 +98,8 @@ onBeforeUnmount(() => {
             </NuxtLink>
           </p>
           <p v-else-if="variant === 'mine' && template.origin" class="muted published-tag">
-            <template v-if="template.synced">Synced with origin — edits will unsync</template>
-            <template v-else>Unsynced copy of origin</template>
+            <template v-if="template.synced">Synced with original — fields follow until you change them</template>
+            <template v-else>Based on original — some fields are customized</template>
           </p>
           <p v-else-if="template.publishedAt" class="muted published-tag">
             Published to Browse

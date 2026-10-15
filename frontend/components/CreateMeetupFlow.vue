@@ -128,6 +128,29 @@ function endProgrammaticUpdate() {
   });
 }
 
+/**
+ * Only for programmatic selectedTemplateId writes that hydrate/load themselves.
+ * Must NOT share programmaticUpdate — placeholder autofill sets that flag in the
+ * same Vue flush as a user template pick and would skip applying the template.
+ */
+let suppressTemplateApplyDepth = 0;
+
+function beginSuppressTemplateApply() {
+  suppressTemplateApplyDepth++;
+}
+
+function endSuppressTemplateApply() {
+  nextTick(() => {
+    suppressTemplateApplyDepth = Math.max(0, suppressTemplateApplyDepth - 1);
+  });
+}
+
+function setSelectedTemplateId(id: number | "") {
+  beginSuppressTemplateApply();
+  selectedTemplateId.value = id;
+  endSuppressTemplateApply();
+}
+
 function markDetailsTouched() {
   if (!programmaticUpdate) detailsTouched.value = true;
 }
@@ -692,8 +715,16 @@ function resetPlaceholders() {
   }
 }
 
-async function blankDraftStandalone() {
-  if (editingDraftId.value != null) return;
+type HydrateOpts = { force?: boolean };
+
+function draftEditBlocksBootstrap(opts?: HydrateOpts) {
+  // Saved-draft edit owns the form; club/live-event bootstrap must not replace it.
+  // User-initiated template changes pass { force: true }.
+  return editingDraftId.value != null && !opts?.force;
+}
+
+async function blankDraftStandalone(opts?: HydrateOpts) {
+  if (draftEditBlocksBootstrap(opts)) return;
   const gen = hydrateGen;
   draft.name = "";
   draft.details = "";
@@ -704,7 +735,7 @@ async function blankDraftStandalone() {
   draft.createdByCommunityAmbassador = true;
   draft.discordChannelId = "";
   const times = await resolveSchedule({ liveEvent: null });
-  if (gen !== hydrateGen || editingDraftId.value != null) return;
+  if (gen !== hydrateGen || draftEditBlocksBootstrap(opts)) return;
   draft.eventTime = times.eventTime;
   draft.eventEndTime = times.eventEndTime;
   draft.locationJitterMeters = DEFAULT_LOCATION_JITTER_METERS;
@@ -712,8 +743,8 @@ async function blankDraftStandalone() {
   draftLocation.value = null;
 }
 
-async function blankDraftFromLiveEvent(ev: LiveEvent) {
-  if (editingDraftId.value != null) return;
+async function blankDraftFromLiveEvent(ev: LiveEvent, opts?: HydrateOpts) {
+  if (draftEditBlocksBootstrap(opts)) return;
   const gen = hydrateGen;
   draft.name = "";
   draft.details = "";
@@ -724,7 +755,7 @@ async function blankDraftFromLiveEvent(ev: LiveEvent) {
   draft.createdByCommunityAmbassador = true;
   draft.discordChannelId = "";
   const times = await resolveSchedule({ liveEvent: ev });
-  if (gen !== hydrateGen || editingDraftId.value != null) return;
+  if (gen !== hydrateGen || draftEditBlocksBootstrap(opts)) return;
   draft.eventTime = times.eventTime;
   draft.eventEndTime = times.eventEndTime;
   draft.locationJitterMeters = DEFAULT_LOCATION_JITTER_METERS;
@@ -732,15 +763,19 @@ async function blankDraftFromLiveEvent(ev: LiveEvent) {
   draftLocation.value = null;
 }
 
-async function blankDraftForSelection() {
-  if (editingDraftId.value != null) return;
-  if (selectedLiveEvent.value) await blankDraftFromLiveEvent(selectedLiveEvent.value);
-  else await blankDraftStandalone();
+async function blankDraftForSelection(opts?: HydrateOpts) {
+  if (draftEditBlocksBootstrap(opts)) return;
+  if (selectedLiveEvent.value) await blankDraftFromLiveEvent(selectedLiveEvent.value, opts);
+  else await blankDraftStandalone(opts);
 }
 
-async function hydrateDraft() {
-  // Saved-draft edit owns the form; club/live-event bootstrap must not replace it.
-  if (editingDraftId.value != null) return;
+function sameTemplateSelection(a: number | "", b: number | "") {
+  if (a === "" && b === "") return true;
+  return Number(a) === Number(b) && Number(a) > 0;
+}
+
+async function hydrateDraft(opts?: HydrateOpts) {
+  if (draftEditBlocksBootstrap(opts)) return;
 
   if (!selectedClub.value) {
     draftReady.value = false;
@@ -749,6 +784,7 @@ async function hydrateDraft() {
   }
 
   const gen = ++hydrateGen;
+  const templateIdAtStart = selectedTemplateId.value;
   const ev = selectedLiveEvent.value;
   const raw = rawPayload.value;
   if (selectedTemplate.value && raw) {
@@ -757,7 +793,14 @@ async function hydrateDraft() {
       startTime: raw.startTime || raw.eventTime,
       endTime: raw.endTime || raw.eventEndTime,
     });
-    if (gen !== hydrateGen || editingDraftId.value != null) return;
+    if (gen !== hydrateGen || draftEditBlocksBootstrap(opts)) return;
+    // Template changed while schedule was in flight (often a user pick blocked by
+    // programmaticUpdate). Re-apply the current selection instead of stale payload.
+    if (!sameTemplateSelection(selectedTemplateId.value, templateIdAtStart)) {
+      detailsTouched.value = true;
+      void hydrateDraft({ force: true });
+      return;
+    }
     // Load raw template copy so {{placeholders}} stay visible until Preview / submit.
     draft.name = raw.name || "";
     draft.details = raw.details || "";
@@ -788,16 +831,31 @@ async function hydrateDraft() {
   }
 
   if (!draftReady.value) {
-    await blankDraftForSelection();
-    if (gen !== hydrateGen || editingDraftId.value != null) return;
+    await blankDraftForSelection(opts);
+    if (gen !== hydrateGen || draftEditBlocksBootstrap(opts)) return;
+    if (!sameTemplateSelection(selectedTemplateId.value, templateIdAtStart)) {
+      detailsTouched.value = true;
+      void hydrateDraft({ force: true });
+      return;
+    }
     syncDiscordChannelFromSettings();
   } else if (ev) {
     const times = await resolveSchedule({ liveEvent: ev });
-    if (gen !== hydrateGen || editingDraftId.value != null) return;
+    if (gen !== hydrateGen || draftEditBlocksBootstrap(opts)) return;
+    if (!sameTemplateSelection(selectedTemplateId.value, templateIdAtStart)) {
+      detailsTouched.value = true;
+      void hydrateDraft({ force: true });
+      return;
+    }
     draft.eventTime = times.eventTime;
     draft.eventEndTime = times.eventEndTime;
     draft.campfireLiveEventId = ev.id;
   } else {
+    if (!sameTemplateSelection(selectedTemplateId.value, templateIdAtStart)) {
+      detailsTouched.value = true;
+      void hydrateDraft({ force: true });
+      return;
+    }
     draft.campfireLiveEventId = "";
   }
   draftReady.value = true;
@@ -816,7 +874,7 @@ function autoSelectTemplate(force = false) {
       }
     }
   }
-  selectedTemplateId.value = next;
+  setSelectedTemplateId(next);
   if (!languageDirty.value) {
     const tpl = next
       ? templates.value.find((t) => t.id === next)
@@ -838,7 +896,7 @@ function syncTemplateForLiveEvent() {
   if (selectedLiveEvent.value) {
     autoSelectTemplate(true);
   } else {
-    selectedTemplateId.value = "";
+    setSelectedTemplateId("");
     applyMeetupLanguage(undefined, { force: true });
   }
   // After template id updates so custom placeholder keys match the new payload.
@@ -849,6 +907,7 @@ function syncTemplateForLiveEvent() {
 
 /** Apply selected template onto the meetup being edited (keeps its calendar day). */
 async function applyTemplateToEdit() {
+  const templateIdAtStart = selectedTemplateId.value;
   const raw = rawPayload.value;
   if (!raw || !selectedEventId.value || !draftReady.value) return;
 
@@ -858,6 +917,13 @@ async function applyTemplateToEdit() {
     endTime: raw.endTime || raw.eventEndTime,
     date: draftCalendarDate() || undefined,
   });
+
+  if (!sameTemplateSelection(selectedTemplateId.value, templateIdAtStart)) {
+    if (selectedTemplateId.value && selectedEventId.value && draftReady.value) {
+      void applyTemplateToEdit();
+    }
+    return;
+  }
 
   draft.name = raw.name || "";
   draft.details = raw.details || "";
@@ -915,7 +981,7 @@ function resolvedDiscordChannelId(): string {
 watch(selectedClubId, () => {
   if (mode.value === "edit") {
     selectedEventId.value = "";
-    selectedTemplateId.value = "";
+    setSelectedTemplateId("");
     for (const k of Object.keys(placeholderValues)) delete placeholderValues[k];
     clearEditDraft();
     void loadClubEvents();
@@ -952,9 +1018,11 @@ watch(templates, () => {
 });
 
 watch(selectedTemplateId, (id) => {
-  // Draft / live-event / club restores set the id under programmaticUpdate and
-  // hydrate themselves — don't wipe the form by re-applying the template.
-  if (programmaticUpdate) return;
+  // Programmatic id writes (live-event auto-select, draft restore, mode switch)
+  // hydrate/load themselves — don't re-apply here. Do NOT gate on
+  // programmaticUpdate: placeholder autofill sets that in the same flush as a
+  // user pick and would skip applying when no live event is selected.
+  if (suppressTemplateApplyDepth > 0) return;
   markDetailsTouched();
   resetPlaceholders();
   languageDirty.value = false;
@@ -968,7 +1036,8 @@ watch(selectedTemplateId, (id) => {
   }
   if (!id) {
     if (selectedClub.value) {
-      void blankDraftForSelection().then(() => {
+      // force: allow clearing when editing a saved draft
+      void blankDraftForSelection({ force: true }).then(() => {
         draftReady.value = true;
       });
     } else {
@@ -977,7 +1046,8 @@ watch(selectedTemplateId, (id) => {
     }
     return;
   }
-  void hydrateDraft();
+  // force: user picked a template — apply even while editing a saved draft
+  void hydrateDraft({ force: true });
 });
 
 watch(
@@ -1003,7 +1073,7 @@ watch(
 
 watch(selectedEventId, (id) => {
   if (mode.value !== "edit") return;
-  selectedTemplateId.value = "";
+  setSelectedTemplateId("");
   for (const k of Object.keys(placeholderValues)) delete placeholderValues[k];
   if (!id) {
     clearEditDraft();
@@ -1021,7 +1091,7 @@ watch(mode, (next, prev) => {
   selectedEventId.value = "";
   detailsTouched.value = false;
   beginProgrammaticUpdate();
-  selectedTemplateId.value = "";
+  setSelectedTemplateId("");
   for (const k of Object.keys(placeholderValues)) delete placeholderValues[k];
   clearEditDraft();
   void loadClubEvents();
@@ -1353,7 +1423,7 @@ function resetFormAfterDraft() {
   languageDirty.value = false;
   beginProgrammaticUpdate();
   selectedLiveEventId.value = "";
-  selectedTemplateId.value = "";
+  setSelectedTemplateId("");
   if (selectedClub.value) {
     void blankDraftForSelection().then(() => {
       draftReady.value = true;
@@ -1408,7 +1478,7 @@ function loadDraftFromPayload(p: DraftMeetupPayload) {
       : null;
   if (p.clubId) selectedClubId.value = p.clubId;
   selectedLiveEventId.value = p.liveEventId || "";
-  selectedTemplateId.value = resolveDraftTemplateId(p);
+  setSelectedTemplateId(resolveDraftTemplateId(p));
   languageDirty.value = false;
   if (isTemplateLanguageCode(p.language || "")) {
     meetupLanguage.value = p.language as TemplateLanguageCode;

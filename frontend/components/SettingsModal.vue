@@ -6,6 +6,13 @@ import {
   isTemplateLanguageCode,
   type TemplateLanguageCode,
 } from "~/utils/languages";
+import {
+  TIME_FORMATS,
+  guessTimeFormat,
+  isTimeFormatId,
+  timeFormatExample,
+  type TimeFormatId,
+} from "~/utils/timeFormats";
 
 const props = defineProps<{
   open: boolean;
@@ -30,6 +37,8 @@ const {
   setPreferredLanguage,
   bugHexeEnabled,
   setBugHexeEnabled,
+  timeFormat,
+  setTimeFormat,
 } = usePreferences();
 const { me, isCA, checking, validateToken } = useCampfireSession();
 const { user, logout } = useAuth();
@@ -41,6 +50,9 @@ const draftTz = ref("");
 const draftClubId = ref("");
 const draftLanguage = ref<TemplateLanguageCode>(guessTemplateLanguage());
 const draftBugHexe = ref(true);
+const draftTimeFormat = ref<TimeFormatId>(guessTimeFormat());
+const timeFormats12 = TIME_FORMATS.filter((f) => f.hour12);
+const timeFormats24 = TIME_FORMATS.filter((f) => !f.hour12);
 const showBugHexeSetting = computed(
   () => !!user.value && bugHexeUserIds.value.includes(user.value.id),
 );
@@ -83,6 +95,7 @@ watch(
       preferredClubId.value,
       preferredLanguage.value,
       bugHexeEnabled.value,
+      timeFormat.value,
     ] as const,
   ([open], prev) => {
     if (open && !prev?.[0]) tokenVisible.value = false;
@@ -92,6 +105,7 @@ watch(
     draftClubId.value = preferredClubId.value;
     draftLanguage.value = preferredLanguage.value;
     draftBugHexe.value = bugHexeEnabled.value;
+    draftTimeFormat.value = timeFormat.value;
     zones.value = listTimeZones();
     if (!zones.value.includes(draftTz.value)) {
       zones.value = [...zones.value, draftTz.value].sort((a, b) => a.localeCompare(b));
@@ -116,6 +130,7 @@ async function onSave() {
       : guessTemplateLanguage(),
   );
   if (showBugHexeSetting.value) setBugHexeEnabled(draftBugHexe.value);
+  setTimeFormat(isTimeFormatId(draftTimeFormat.value) ? draftTimeFormat.value : guessTimeFormat());
   saveError.value = "";
   const nextToken = draftToken.value.trim();
   if (nextToken) {
@@ -195,6 +210,27 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           </select>
         </div>
         <p class="hint muted">Detected browser zone: {{ browserTimeZone() }}</p>
+      </div>
+
+      <div class="settings-section">
+        <h3>Time format</h3>
+        <p class="muted">How meetup dates and times are shown in the app.</p>
+        <div class="field" style="margin-bottom: 0">
+          <label for="settings-time-format">Format</label>
+          <select id="settings-time-format" v-model="draftTimeFormat">
+            <optgroup label="12-hour">
+              <option v-for="f in timeFormats12" :key="f.id" :value="f.id">
+                {{ f.example }}
+              </option>
+            </optgroup>
+            <optgroup label="24-hour">
+              <option v-for="f in timeFormats24" :key="f.id" :value="f.id">
+                {{ f.example }}
+              </option>
+            </optgroup>
+          </select>
+        </div>
+        <p class="hint muted">Detected format: {{ timeFormatExample(guessTimeFormat()) }}</p>
       </div>
 
       <div class="settings-section">

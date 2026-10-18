@@ -25,4 +25,5 @@ type DiscordUser struct {
 	DiscordUserImportedAt  pgtype.Timestamp
 	DiscordUserTimezone    pgtype.Text
 	DiscordUserLanguage    pgtype.Text
+	DiscordUserTimeFormat  pgtype.Text
 }

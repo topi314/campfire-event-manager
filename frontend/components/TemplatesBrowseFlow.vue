@@ -13,7 +13,7 @@ const props = defineProps<{
 
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
-const { timeZone } = usePreferences();
+const { timeZone, timeFormat } = usePreferences();
 const toast = useToast();
 const route = useRoute();
 const { apiBase } = useRuntimeConfig().public;
@@ -371,7 +371,7 @@ function isHighlight(t: MeetupTemplate) {
                 </NuxtLink>
               </div>
               <span v-if="t.publishedAt" class="meta-sep">
-                {{ formatInstantDate(t.publishedAt, timeZone) }}
+                {{ formatInstantDate(t.publishedAt, timeZone, timeFormat) }}
               </span>
             </div>
           </div>

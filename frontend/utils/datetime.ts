@@ -1,3 +1,5 @@
+import { guessTimeFormat, isTimeFormatId } from "~/utils/timeFormats";
+
 /** Wall-clock datetime for `<input type="datetime-local">`: YYYY-MM-DDTHH:mm */
 
 /** Minimum meetup length (Campfire create/edit + templates). */
@@ -464,46 +466,157 @@ export function isMeetupTimeOfDayDurationValid(
   return minutesOfDay(e) - minutesOfDay(s) >= minutes;
 }
 
-/** Display a datetime-local value (wall clock, no zone conversion). */
-export function formatLocalDateTime(value: string | undefined | null): string {
-  if (!value?.trim()) return "—";
-  const parts = parseLocalDateTime(value);
-  if (parts) {
-    const label = `${parts.year}-${pad(parts.month)}-${pad(parts.day)} ${pad(parts.hours)}:${pad(parts.minutes)}`;
-    return label;
-  }
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+const MONTH_ABBR = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function clock12(hours: number, minutes: number, upper: boolean): string {
+  const pm = hours >= 12;
+  let h = hours % 12;
+  if (h === 0) h = 12;
+  const mark = upper ? (pm ? "PM" : "AM") : pm ? "pm" : "am";
+  return `${h}:${pad(minutes)} ${mark}`;
 }
 
-/** Absolute timestamps → locale string in optional IANA zone. */
+function clock24(hours: number, minutes: number, sep: ":" | "." | "h"): string {
+  if (sep === "h") return `${pad(hours)} h ${pad(minutes)}`;
+  return `${pad(hours)}${sep}${pad(minutes)}`;
+}
+
+/** Human-readable wall clock. `format` is a time-format preset id. */
+export function formatDateTimeParts(
+  p: LocalDateTime,
+  format?: string | null,
+  dateOnly = false,
+): string {
+  const id = isTimeFormatId(format) ? format : guessTimeFormat();
+  const mon = MONTH_ABBR[p.month - 1] || pad(p.month);
+  const day = String(p.day);
+  const dd = pad(p.day);
+  const mm = pad(p.month);
+  const yyyy = String(p.year);
+  let date = `${day} ${mon} ${yyyy}`;
+  let time = clock24(p.hours, p.minutes, ":");
+  let join: "comma" | "space" | "time-first" = "comma";
+  switch (id) {
+    case "mdy-12":
+      date = `${mon} ${day}, ${yyyy}`;
+      time = clock12(p.hours, p.minutes, true);
+      break;
+    case "mdy-slash-12":
+      date = `${mm}/${dd}/${yyyy}`;
+      time = clock12(p.hours, p.minutes, true);
+      break;
+    case "dmy-12":
+      date = `${day} ${mon} ${yyyy}`;
+      time = clock12(p.hours, p.minutes, false);
+      break;
+    case "dmy-slash-12":
+      date = `${dd}/${mm}/${yyyy}`;
+      time = clock12(p.hours, p.minutes, false);
+      break;
+    case "dmy-24":
+      date = `${day} ${mon} ${yyyy}`;
+      time = clock24(p.hours, p.minutes, ":");
+      break;
+    case "dmy-dot-24":
+      date = `${dd}.${mm}.${yyyy}`;
+      time = clock24(p.hours, p.minutes, ":");
+      break;
+    case "dmy-slash-24":
+      date = `${dd}/${mm}/${yyyy}`;
+      time = clock24(p.hours, p.minutes, ":");
+      break;
+    case "dmy-dash-24":
+      date = `${dd}-${mm}-${yyyy}`;
+      time = clock24(p.hours, p.minutes, ":");
+      break;
+    case "dmy-dot-time":
+      date = `${dd}.${mm}.${yyyy}`;
+      time = clock24(p.hours, p.minutes, ".");
+      break;
+    case "dmy-h":
+      date = `${day} ${mon} ${yyyy}`;
+      time = clock24(p.hours, p.minutes, "h");
+      break;
+    case "ymd-24":
+      date = `${yyyy}-${mm}-${dd}`;
+      time = clock24(p.hours, p.minutes, ":");
+      join = "space";
+      break;
+    case "ymd-slash-24":
+      date = `${yyyy}/${mm}/${dd}`;
+      time = clock24(p.hours, p.minutes, ":");
+      join = "space";
+      break;
+    case "ymd-dot-24":
+      date = `${yyyy}.${mm}.${dd}`;
+      time = clock24(p.hours, p.minutes, ":");
+      join = "space";
+      break;
+    case "hm-dmy":
+      date = `${day} ${mon} ${yyyy}`;
+      time = clock24(p.hours, p.minutes, ":");
+      join = "time-first";
+      break;
+    case "hm-dmy-slash":
+      date = `${dd}/${mm}/${yyyy}`;
+      time = clock24(p.hours, p.minutes, ":");
+      join = "time-first";
+      break;
+  }
+  if (dateOnly) return date;
+  if (join === "time-first") return `${time}, ${date}`;
+  if (join === "space") return `${date} ${time}`;
+  return `${date}, ${time}`;
+}
+
+/** Display a datetime-local value (wall clock, no zone conversion). */
+export function formatLocalDateTime(
+  value: string | undefined | null,
+  timeFormat?: string | null,
+): string {
+  if (!value?.trim()) return "—";
+  const parts = parseLocalDateTime(value);
+  if (parts) return formatDateTimeParts(parts, timeFormat);
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  const zoned = partsInTimeZone(d, browserTimeZone());
+  return zoned ? formatDateTimeParts(zoned, timeFormat) : value;
+}
+
+/** Absolute timestamps → formatted string in an optional IANA zone. */
 export function formatInstant(
   value: string | undefined | null,
   timeZone?: string,
+  timeFormat?: string | null,
 ): string {
   if (!value?.trim()) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: timeZone || undefined,
-  });
+  const parts = partsInTimeZone(d, timeZone || browserTimeZone());
+  return parts ? formatDateTimeParts(parts, timeFormat) : value;
 }
 
 export function formatInstantDate(
   value: string | undefined | null,
   timeZone?: string,
+  timeFormat?: string | null,
 ): string {
   if (!value?.trim()) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString(undefined, {
-    dateStyle: "medium",
-    timeZone: timeZone || undefined,
-  });
+  const parts = partsInTimeZone(d, timeZone || browserTimeZone());
+  return parts ? formatDateTimeParts(parts, timeFormat, true) : value;
 }

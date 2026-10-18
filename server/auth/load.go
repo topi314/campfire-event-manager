@@ -42,6 +42,7 @@ func LoadSession(ctx context.Context, db *database.DB, sessionID string) (*Sessi
 			ImportedAt:  timeFrom(row.DiscordUserImportedAt),
 			TimeZone:    stringPtr(row.DiscordUserTimezone),
 			Language:    stringPtr(row.DiscordUserLanguage),
+			TimeFormat:  stringPtr(row.DiscordUserTimeFormat),
 		},
 	}, nil
 }
@@ -55,6 +56,7 @@ func DiscordUserFrom(u dbsqlc.DiscordUser) DiscordUser {
 		ImportedAt:  timeFrom(u.DiscordUserImportedAt),
 		TimeZone:    stringPtr(u.DiscordUserTimezone),
 		Language:    stringPtr(u.DiscordUserLanguage),
+		TimeFormat:  stringPtr(u.DiscordUserTimeFormat),
 	}
 }
 

@@ -3,6 +3,7 @@ import {
   isTemplateLanguageCode,
   type TemplateLanguageCode,
 } from "~/utils/languages";
+import { guessTimeFormat, isTimeFormatId, type TimeFormatId } from "~/utils/timeFormats";
 
 const PREFS_KEY = "campfire-event-manager.preferences";
 
@@ -16,6 +17,8 @@ type StoredPrefs = {
   preferredLanguageByUser?: Record<string, string>;
   /** Discord user id → whether Bug Hexe easter egg is enabled (default true). */
   bugHexeEnabledByUser?: Record<string, boolean>;
+  /** Discord user id → date/time format preset id. */
+  timeFormatByUser?: Record<string, string>;
 };
 
 function browserTimeZone(): string {
@@ -51,6 +54,7 @@ function normalizeStored(raw: unknown): StoredPrefs {
   const preferredClubByUser = normalizeStringMap(parsed.preferredClubByUser);
   const preferredLanguageByUser = normalizeStringMap(parsed.preferredLanguageByUser);
   const bugHexeEnabledByUser = normalizeBoolMap(parsed.bugHexeEnabledByUser);
+  const timeFormatByUser = normalizeStringMap(parsed.timeFormatByUser);
   const legacy = typeof parsed.timeZone === "string" ? parsed.timeZone.trim() : "";
   return {
     timeZone: legacy || undefined,
@@ -58,6 +62,7 @@ function normalizeStored(raw: unknown): StoredPrefs {
     preferredClubByUser,
     preferredLanguageByUser,
     bugHexeEnabledByUser,
+    timeFormatByUser,
   };
 }
 
@@ -143,6 +148,8 @@ export function usePreferences() {
         },
       bugHexeEnabledByUser:
         partial.bugHexeEnabledByUser ?? { ...(stored.value.bugHexeEnabledByUser || {}) },
+      timeFormatByUser:
+        partial.timeFormatByUser ?? { ...(stored.value.timeFormatByUser || {}) },
     };
   }
 
@@ -259,6 +266,92 @@ export function usePreferences() {
     return storedFlag !== false;
   });
 
+  const timeFormat = computed<TimeFormatId>(() => {
+    const id = user.value?.id;
+    if (id) {
+      const saved = stored.value.timeFormatByUser?.[id] || "";
+      if (isTimeFormatId(saved)) return saved;
+      const fromAccount = user.value?.timeFormat || "";
+      if (isTimeFormatId(fromAccount)) return fromAccount;
+    }
+    return guessTimeFormat();
+  });
+
+  const hasTimeFormatPreference = computed(() => {
+    const id = user.value?.id;
+    if (!id) return false;
+    return (
+      isTimeFormatId(stored.value.timeFormatByUser?.[id] || "") ||
+      isTimeFormatId(user.value?.timeFormat || "")
+    );
+  });
+
+  function rememberTimeFormat(userId: string, format: TimeFormatId) {
+    const next = snapshot({
+      timeFormatByUser: {
+        ...(stored.value.timeFormatByUser || {}),
+        [userId]: format,
+      },
+    });
+    stored.value = next;
+    writeStored(next);
+  }
+
+  const timeFormatPersistInflight = useState<Promise<void> | null>(
+    "timeFormatPersistInflight",
+    () => null,
+  );
+
+  async function persistTimeFormat(format: TimeFormatId) {
+    const current = user.value;
+    if (!current?.id) return;
+    if ((current.timeFormat || "").trim() === format) return;
+    if (timeFormatPersistInflight.value) return timeFormatPersistInflight.value;
+
+    const run = (async () => {
+      try {
+        const latest = user.value;
+        if (!latest?.id || (latest.timeFormat || "").trim() === format) return;
+        await api("/api/me", {
+          method: "PATCH",
+          body: JSON.stringify({ timeFormat: format }),
+        });
+        if (user.value?.id === latest.id) {
+          user.value = { ...user.value, timeFormat: format };
+        }
+      } finally {
+        timeFormatPersistInflight.value = null;
+      }
+    })();
+    timeFormatPersistInflight.value = run;
+    return run;
+  }
+
+  function setTimeFormat(format: string) {
+    const id = user.value?.id;
+    if (!id) return;
+    const resolved = isTimeFormatId(format) ? format : guessTimeFormat();
+    rememberTimeFormat(id, resolved);
+    void persistTimeFormat(resolved).catch(() => {
+      /* Retried the next time this account loads. */
+    });
+  }
+
+  /** Reuse a saved format, or upload a browser-local choice that the server does not have yet. */
+  function syncTimeFormat() {
+    const current = user.value;
+    if (!current?.id) return;
+    const account = (current.timeFormat || "").trim();
+    if (isTimeFormatId(account)) {
+      rememberTimeFormat(current.id, account);
+      return;
+    }
+    const local = stored.value.timeFormatByUser?.[current.id] || "";
+    if (isTimeFormatId(local)) {
+      void persistTimeFormat(local).catch(() => {});
+    }
+  }
+
   function setBugHexeEnabled(enabled: boolean) {
     const id = user.value?.id;
     if (!id) return;
@@ -318,6 +411,7 @@ export function usePreferences() {
     if (!import.meta.client) return;
     const current = user.value;
     if (!current?.id) return;
+    syncTimeFormat();
 
     const accountTz = (current.timeZone || "").trim();
     if (accountTz) {
@@ -407,6 +501,10 @@ export function usePreferences() {
     languagePromptOpen,
     bugHexeEnabled,
     setBugHexeEnabled,
+    timeFormat,
+    hasTimeFormatPreference,
+    setTimeFormat,
+    guessTimeFormat,
     maybePromptTimezone,
     closeTimezonePrompt,
     maybePromptLanguage,

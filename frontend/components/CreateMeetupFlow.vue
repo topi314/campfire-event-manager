@@ -59,7 +59,7 @@ const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { token, authHeaders, openSettings, invalidateToken } = useSessionToken();
 const { me: campfireMe, validateToken } = useCampfireSession();
-const { timeZone, preferredClubId, preferredLanguage } = usePreferences();
+const { timeZone, timeFormat, preferredClubId, preferredLanguage } = usePreferences();
 const toast = useToast();
 
 type FlowMode = "create" | "edit";
@@ -1141,7 +1141,7 @@ const selectedLiveEventWindowLabel = computed(() => {
   const start = instantToLocalInput(ev.startTimestamp, timeZone.value);
   const end = instantToLocalInput(ev.endTimestamp, timeZone.value);
   if (!start || !end) return "";
-  return `${formatLocalDateTime(start)} - ${formatLocalDateTime(end)}`;
+  return `${formatLocalDateTime(start, timeFormat.value)} - ${formatLocalDateTime(end, timeFormat.value)}`;
 });
 
 const liveEventWindowError = computed(() => {
@@ -1353,7 +1353,7 @@ function clubEventOptionLabel(ev: ClubEvent) {
     // Show the real meetup hour, not Campfire's worldwide window.
     local = `${local.slice(0, 10)}T18:00`;
   }
-  const when = local ? formatLocalDateTime(local) : "";
+  const when = local ? formatLocalDateTime(local, timeFormat.value) : "";
   return when && when !== "—" ? `${ev.name} · ${when}` : ev.name;
 }
 

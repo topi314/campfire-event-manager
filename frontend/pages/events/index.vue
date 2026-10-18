@@ -7,7 +7,7 @@ import { formatInstant } from "~/utils/datetime";
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { token, authHeaders, openSettings, invalidateToken } = useSessionToken();
-const { timeZone, preferredClubId } = usePreferences();
+const { timeZone, timeFormat, preferredClubId } = usePreferences();
 const toast = useToast();
 const { apiBase } = useRuntimeConfig().public;
 
@@ -247,9 +247,9 @@ const eventRows = computed(() =>
   events.value.map((ev) => {
     const name = (ev.name || "").trim() || "Untitled meetup";
     const cover = coverImageSrc(ev.coverPhotoUrl, apiBase as string);
-    const when = formatInstant(ev.eventTime, timeZone.value);
+    const when = formatInstant(ev.eventTime, timeZone.value, timeFormat.value);
     const end = ev.eventEndTime
-      ? formatInstant(ev.eventEndTime, timeZone.value)
+      ? formatInstant(ev.eventEndTime, timeZone.value, timeFormat.value)
       : "";
     const creator = ev.creator?.displayName || ev.creator?.username || "";
     return {

@@ -8,7 +8,7 @@ const { options: TEMPLATE_CATEGORY_OPTIONS } = useEventCategories();
 
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
-const { timeZone } = usePreferences();
+const { timeZone, timeFormat } = usePreferences();
 const toast = useToast();
 const route = useRoute();
 const { apiBase } = useRuntimeConfig().public;
@@ -314,7 +314,7 @@ async function toggleLike(t: MeetupTemplate) {
                 </NuxtLink>
               </div>
               <span v-if="t.publishedAt" :class="{ 'meta-sep': view === 'liked' && t.publisher }">
-                {{ formatInstantDate(t.publishedAt, timeZone) }}
+                {{ formatInstantDate(t.publishedAt, timeZone, timeFormat) }}
               </span>
             </div>
           </div>

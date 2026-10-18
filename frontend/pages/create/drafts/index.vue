@@ -13,7 +13,7 @@ import { coverImageSrc } from "~/utils/covers";
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
 const { token, authHeaders, openSettings, invalidateToken } = useSessionToken();
-const { timeZone } = usePreferences();
+const { timeZone, timeFormat } = usePreferences();
 const toast = useToast();
 const { apiBase } = useRuntimeConfig().public;
 
@@ -392,7 +392,7 @@ const draftRows = computed(() =>
       clubName: raw.clubName || "Club",
       liveEventName: raw.liveEventName || "No live event",
       templateName: raw.templateName || "Custom",
-      when: formatDraftWhen(raw.eventTime),
+      when: formatDraftWhen(raw.eventTime, timeFormat.value),
       creator: creatorLabel(item),
     };
   }),

@@ -19,6 +19,7 @@ import (
 	"github.com/topi314/campfire-event-manager/server/database"
 	"github.com/topi314/campfire-event-manager/server/database/dbsqlc"
 	"github.com/topi314/campfire-event-manager/server/languages"
+	"github.com/topi314/campfire-event-manager/server/timeformat"
 )
 
 func (s *Server) sessionMiddleware(next http.Handler) http.Handler {
@@ -239,21 +240,23 @@ func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 		"admin":       session.Session.Admin,
 		"timeZone":    session.DiscordUser.TimeZone,
 		"language":    session.DiscordUser.Language,
+		"timeFormat":  session.DiscordUser.TimeFormat,
 	})
 }
 
 func (s *Server) apiUpdateMe(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.GetSession(r)
 	var body struct {
-		TimeZone *string `json:"timeZone"`
-		Language *string `json:"language"`
+		TimeZone   *string `json:"timeZone"`
+		Language   *string `json:"language"`
+		TimeFormat *string `json:"timeFormat"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if body.TimeZone == nil && body.Language == nil {
-		writeError(w, http.StatusBadRequest, "timeZone or language required")
+	if body.TimeZone == nil && body.Language == nil && body.TimeFormat == nil {
+		writeError(w, http.StatusBadRequest, "timeZone, language, or timeFormat required")
 		return
 	}
 
@@ -291,6 +294,23 @@ func (s *Server) apiUpdateMe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out["language"] = lang
+	}
+	if body.TimeFormat != nil {
+		format := strings.TrimSpace(*body.TimeFormat)
+		if !timeformat.Valid(format) {
+			writeError(w, http.StatusBadRequest, "invalid time format")
+			return
+		}
+		n, err := s.db.SetDiscordUserTimeFormat(r.Context(), dbsqlc.SetDiscordUserTimeFormatParams{
+			DiscordUserID:         session.DiscordUser.ID,
+			DiscordUserTimeFormat: database.Text(format),
+		})
+		if err != nil || n == 0 {
+			slog.ErrorContext(r.Context(), "failed to save time format", slog.Any("error", err))
+			writeError(w, http.StatusInternalServerError, "failed to save time format")
+			return
+		}
+		out["timeFormat"] = format
 	}
 	writeJSON(w, http.StatusOK, out)
 }

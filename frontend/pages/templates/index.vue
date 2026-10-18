@@ -11,7 +11,7 @@ const { options: TEMPLATE_CATEGORY_OPTIONS } = useEventCategories();
 
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
-const { timeZone } = usePreferences();
+const { timeZone, timeFormat } = usePreferences();
 const toast = useToast();
 const route = useRoute();
 const { apiBase } = useRuntimeConfig().public;
@@ -489,7 +489,7 @@ function downloadMany() {
                 {{ t.publishDescription }}
               </p>
               <div class="mine-meta muted">
-                <span>Updated {{ formatInstant(t.updatedAt, timeZone) }}</span>
+                <span>Updated {{ formatInstant(t.updatedAt, timeZone, timeFormat) }}</span>
                 <template v-if="t.origin">
                   <span class="meta-sep">
                     {{ t.synced ? "Synced with" : "Based on" }}

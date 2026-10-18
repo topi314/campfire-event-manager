@@ -10,6 +10,7 @@ type DiscordUser struct {
 	ImportedAt  time.Time `json:"importedAt"`
 	TimeZone    *string   `json:"timeZone,omitempty"`
 	Language    *string   `json:"language,omitempty"`
+	TimeFormat  *string   `json:"timeFormat,omitempty"`
 }
 
 type Session struct {

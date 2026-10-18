@@ -104,6 +104,6 @@ export function buildMeetupBodyFromDraft(
   };
 }
 
-export function formatDraftWhen(local: string) {
-  return formatLocalDateTime(local);
+export function formatDraftWhen(local: string, timeFormat?: string | null) {
+  return formatLocalDateTime(local, timeFormat);
 }

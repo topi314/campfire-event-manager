@@ -8,6 +8,8 @@ export type DiscordUser = {
   timeZone?: string | null;
   /** Saved default language (ISO 639-1). Null until this account has chosen one. */
   language?: string | null;
+  /** Saved date/time format preset id. Null until this account has chosen one. */
+  timeFormat?: string | null;
 };
 
 export type MeetupTemplate = {

@@ -71,7 +71,8 @@ SELECT
     u.discord_user_avatar_url,
     u.discord_user_imported_at,
     u.discord_user_timezone,
-    u.discord_user_language
+    u.discord_user_language,
+    u.discord_user_time_format
 FROM sessions s
 LEFT JOIN discord_users u ON s.session_user_id = u.discord_user_id
 WHERE s.session_id = $1
@@ -90,6 +91,7 @@ type GetSessionWithUserRow struct {
 	DiscordUserImportedAt  pgtype.Timestamp
 	DiscordUserTimezone    pgtype.Text
 	DiscordUserLanguage    pgtype.Text
+	DiscordUserTimeFormat  pgtype.Text
 }
 
 func (q *Queries) GetSessionWithUser(ctx context.Context, sessionID string) (GetSessionWithUserRow, error) {
@@ -108,6 +110,7 @@ func (q *Queries) GetSessionWithUser(ctx context.Context, sessionID string) (Get
 		&i.DiscordUserImportedAt,
 		&i.DiscordUserTimezone,
 		&i.DiscordUserLanguage,
+		&i.DiscordUserTimeFormat,
 	)
 	return i, err
 }

@@ -7,6 +7,7 @@ require (
 	github.com/disgoorg/disgo v0.19.0-rc.12
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/topi314/gomigrate v0.0.0-20250604001904-f3f6e21ecfc9
+	golang.org/x/image v0.30.0
 	golang.org/x/oauth2 v0.33.0
 )
 

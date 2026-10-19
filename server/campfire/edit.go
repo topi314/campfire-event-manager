@@ -141,10 +141,9 @@ type EditEventInput struct {
 }
 
 // AvatarUpload is a cover image attached to editEvent via the GraphQL multipart spec.
+// Bytes are re-encoded to JPEG before upload.
 type AvatarUpload struct {
-	Filename    string
-	ContentType string
-	Data        []byte
+	Data []byte
 }
 
 type editEventResp struct {
@@ -171,18 +170,9 @@ func (c *Client) editEventWithAvatar(ctx context.Context, token string, input Ed
 	changed := true
 	input.HasEventPhotoChanged = &changed
 
-	filename := strings.TrimSpace(avatar.Filename)
-	if filename == "" {
-		filename = "cover.jpg"
-	}
-	contentType := strings.TrimSpace(avatar.ContentType)
-	if contentType == "" {
-		contentType = "image/jpeg"
-	}
-
 	data, err := c.doMultipart(ctx, token, "EditEventMutation", mutationEditEvent, editEventMultipartVars{
 		Input: editEventMultipartInput{EditEventInput: input},
-	}, "variables.input.avatarFile", filename, contentType, avatar.Data)
+	}, "variables.input.avatarFile", avatar.Data)
 	if err != nil {
 		return nil, err
 	}

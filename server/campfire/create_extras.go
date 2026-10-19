@@ -112,18 +112,18 @@ func (c *Client) SearchClubMembers(ctx context.Context, token, clubID, search st
 // (what the app uses when not anchoring on a POI drop). Location is
 // "[lng, lat]"; cover is multipart input.avatarFile — one call, no edit.
 type CreateActivityReminderInput struct {
-	ClubID                       string   `json:"clubId"`
-	Name                         string   `json:"name"`
-	Details                      string   `json:"details"`
-	EventTime                    string   `json:"eventTime"`
-	EventEndTime                 string   `json:"eventEndTime,omitempty"`
-	Location                     string   `json:"location,omitempty"` // "[lng, lat]"
-	Address                      string   `json:"address"`
-	PlaceID                      string   `json:"placeId,omitempty"`
-	CoverPhotoURL                string   `json:"coverPhotoUrl"`
-	CommentsPermissions          string   `json:"commentsPermissions,omitempty"`
-	AllInvited                   *bool    `json:"allInvited,omitempty"`
-	UserIDs                      []string `json:"userIds"`
+	ClubID                       string        `json:"clubId"`
+	Name                         string        `json:"name"`
+	Details                      string        `json:"details"`
+	EventTime                    string        `json:"eventTime"`
+	EventEndTime                 string        `json:"eventEndTime,omitempty"`
+	Location                     string        `json:"location,omitempty"` // "[lng, lat]"
+	Address                      string        `json:"address"`
+	PlaceID                      string        `json:"placeId,omitempty"`
+	CoverPhotoURL                string        `json:"coverPhotoUrl"`
+	CommentsPermissions          string        `json:"commentsPermissions,omitempty"`
+	AllInvited                   *bool         `json:"allInvited,omitempty"`
+	UserIDs                      []string      `json:"userIds"`
 	CampfireLiveEventID          string        `json:"campfireLiveEventId,omitempty"`
 	CreatedByCommunityAmbassador *bool         `json:"createdByCommunityAmbassador,omitempty"`
 	DiscordChannelID             string        `json:"discordChannelId,omitempty"`
@@ -172,14 +172,6 @@ func (c *Client) CreateActivityReminder(ctx context.Context, token string, input
 	input.CoverPhotoURL = ""
 
 	if avatar != nil && len(avatar.Data) > 0 {
-		filename := strings.TrimSpace(avatar.Filename)
-		if filename == "" {
-			filename = "cover.jpg"
-		}
-		contentType := strings.TrimSpace(avatar.ContentType)
-		if contentType == "" {
-			contentType = "image/jpeg"
-		}
 		data, err := c.doMultipart(
 			ctx,
 			token,
@@ -189,8 +181,6 @@ func (c *Client) CreateActivityReminder(ctx context.Context, token string, input
 				Input: createActivityReminderMultipartInput{CreateActivityReminderInput: input},
 			},
 			"variables.input.avatarFile",
-			filename,
-			contentType,
 			avatar.Data,
 		)
 		if err != nil {

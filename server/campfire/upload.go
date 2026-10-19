@@ -5,6 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	_ "image/gif"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"mime/multipart"
 	"net"
@@ -13,13 +19,30 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"golang.org/x/image/webp"
 )
+
+func init() {
+	image.RegisterFormat("webp", "RIFF????WEBP", webp.Decode, webp.DecodeConfig)
+}
 
 const maxUploadBytes = 8 << 20 // 8 MiB
 
+// WhatsApp skips share cards that are large PNGs. Campfire emits a PNG card
+// when the meetup photo is a PNG, and a JPEG card when the photo is a JPEG.
+const avatarJPEGQuality = 85
+
 // doMultipart sends a GraphQL multipart request with one file mapped to filePath
 // (e.g. "variables.input.avatarFile") per the GraphQL multipart request spec.
-func (c *Client) doMultipart(ctx context.Context, token, operation, query string, variables any, filePath, filename, contentType string, data []byte) (json.RawMessage, error) {
+// Non-JPEG files are re-encoded to JPEG so the share card stays a JPEG.
+func (c *Client) doMultipart(ctx context.Context, token, operation, query string, variables any, filePath string, data []byte) (json.RawMessage, error) {
+	prepared, err := prepareAvatarJPEG(data)
+	if err != nil {
+		return nil, err
+	}
+	data = prepared
+
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	ops := struct {
@@ -42,8 +65,8 @@ func (c *Client) doMultipart(ctx context.Context, token, operation, query string
 		return nil, err
 	}
 	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="0"; filename="%s"`, escapeQuotes(filename)))
-	h.Set("Content-Type", contentType)
+	h.Set("Content-Disposition", `form-data; name="0"; filename="cover.jpg"`)
+	h.Set("Content-Type", "image/jpeg")
 	part, err := w.CreatePart(h)
 	if err != nil {
 		return nil, err
@@ -106,10 +129,6 @@ func (c *Client) roundTripMultipart(ctx context.Context, token, operation, conte
 	return parsed.Data, nil
 }
 
-func escapeQuotes(s string) string {
-	return strings.ReplaceAll(s, `"`, `\"`)
-}
-
 // FetchImage downloads an external https cover so it can be attached as avatarFile
 // (e.g. when editing a meetup that already has a Campfire CDN cover URL).
 func (c *Client) FetchImage(ctx context.Context, rawURL string) (*AvatarUpload, error) {
@@ -151,27 +170,10 @@ func (c *Client) FetchImage(ctx context.Context, rawURL string) (*AvatarUpload, 
 	if len(data) > maxUploadBytes {
 		return nil, fmt.Errorf("cover image is too large")
 	}
-	contentType := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
-	if !strings.HasPrefix(contentType, "image/") {
-		contentType = sniffImageType(data)
-	}
-	if !strings.HasPrefix(contentType, "image/") {
+	if _, _, err := image.DecodeConfig(bytes.NewReader(data)); err != nil {
 		return nil, fmt.Errorf("cover url is not an image")
 	}
-	ext := "jpg"
-	switch contentType {
-	case "image/png":
-		ext = "png"
-	case "image/webp":
-		ext = "webp"
-	case "image/gif":
-		ext = "gif"
-	}
-	return &AvatarUpload{
-		Filename:    "cover." + ext,
-		ContentType: contentType,
-		Data:        data,
-	}, nil
+	return &AvatarUpload{Data: data}, nil
 }
 
 func safeImageURL(raw string) (*url.URL, error) {
@@ -192,18 +194,27 @@ func safeImageURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-func sniffImageType(data []byte) string {
-	if len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff {
-		return "image/jpeg"
+// prepareAvatarJPEG leaves JPEG bytes unchanged. Other images are flattened
+// onto white and encoded as JPEG.
+func prepareAvatarJPEG(data []byte) ([]byte, error) {
+	img, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("decode cover image: %w", err)
 	}
-	if len(data) >= 8 && string(data[:8]) == "\x89PNG\r\n\x1a\n" {
-		return "image/png"
+	if format == "jpeg" {
+		return data, nil
 	}
-	if len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
-		return "image/webp"
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, flattenOpaque(img), &jpeg.Options{Quality: avatarJPEGQuality}); err != nil {
+		return nil, fmt.Errorf("encode cover image: %w", err)
 	}
-	if len(data) >= 6 && (string(data[:6]) == "GIF87a" || string(data[:6]) == "GIF89a") {
-		return "image/gif"
-	}
-	return ""
+	return buf.Bytes(), nil
+}
+
+func flattenOpaque(src image.Image) *image.RGBA {
+	b := src.Bounds()
+	dst := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	draw.Draw(dst, dst.Bounds(), &image.Uniform{C: color.White}, image.Point{}, draw.Src)
+	draw.Draw(dst, dst.Bounds(), src, b.Min, draw.Over)
+	return dst
 }

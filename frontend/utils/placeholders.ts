@@ -1,5 +1,9 @@
-/** Match {{key}} or {{key[1]}} tokens. */
-export const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*(?:\[[0-9]+\])?)\s*\}\}/g;
+import { layoutPieces } from "~/utils/datetime";
+import { isTimeFormatId, TIME_FORMAT_IDS, type TimeFormatId } from "~/utils/timeFormats";
+
+/** Match {{key}}, {{key[1]}}, {{eventPokemon[1]:de}}, and {{date:dmy-dot-24}}. */
+export const PLACEHOLDER_RE =
+  /\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*(?:\[[0-9]+\])?(?::[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*)?)\s*\}\}/g;
 
 export type PlaceholderDef = {
   key: string;
@@ -246,16 +250,28 @@ export function normalizePlaceholderKey(key: string): string {
 }
 
 const INDEX_SUFFIX_RE = /\[([0-9]+)\]$/;
+const LANG_SUFFIX_RE = /:([a-zA-Z]{2}(?:-[a-zA-Z0-9]+)?)$/;
+const ANY_SUFFIX_RE = /:([a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*)$/;
 
-/** Split eventPokemon[2] → { base: "eventPokemon", index: 2 }. */
+const TIME_LAYOUT_KEYS = new Set(["date", "starttime", "endtime"]);
+
+/** Split a trailing :lang (eventPokemon[2]:de → rest eventPokemon[2], lang de). */
+export function splitPlaceholderLang(key: string): { rest: string; lang: string | null } {
+  const trimmed = key.trim();
+  const m = LANG_SUFFIX_RE.exec(trimmed);
+  if (!m) return { rest: trimmed, lang: null };
+  return { rest: trimmed.slice(0, m.index), lang: m[1].toLowerCase() };
+}
+
+/** Split eventPokemon[2] or eventPokemon[2]:de → { base: "eventPokemon", index: 2 }. */
 export function splitPlaceholderIndex(key: string): {
   base: string;
   index: number | null;
 } {
-  const trimmed = key.trim();
-  const m = INDEX_SUFFIX_RE.exec(trimmed);
-  if (!m) return { base: trimmed, index: null };
-  return { base: trimmed.slice(0, m.index), index: Number(m[1]) };
+  const { rest } = splitPlaceholderLang(key.trim());
+  const m = INDEX_SUFFIX_RE.exec(rest);
+  if (!m) return { base: rest, index: null };
+  return { base: rest.slice(0, m.index), index: Number(m[1]) };
 }
 
 const builtinByNorm = new Map(
@@ -266,29 +282,73 @@ const builtinByNorm = new Map(
  * Prefer the documented built-in spelling; otherwise keep the given casing.
  * Matching itself is always case-insensitive.
  */
-export function canonicalPlaceholderKey(key: string): string {
-  const trimmed = key.trim();
-  const { base, index } = splitPlaceholderIndex(trimmed);
-  const canonBase = builtinByNorm.get(normalizePlaceholderKey(base));
-  if (canonBase) {
-    return index != null ? `${canonBase}[${index}]` : canonBase;
-  }
-  return trimmed;
-}
-
-export function isBuiltinPlaceholder(key: string): boolean {
-  const { base } = splitPlaceholderIndex(key);
-  return builtinByNorm.has(normalizePlaceholderKey(base));
-}
-
-/** True for eventPokemon / eventPokemon[i] (editable name builtins). */
-export function isEventPokemonNameKey(key: string): boolean {
-  const { base } = splitPlaceholderIndex(key);
+function isEventPokemonNameBase(base: string): boolean {
   return normalizePlaceholderKey(base) === "eventpokemon";
 }
 
-export function isEventPokemonBaseKey(key: string): boolean {
+function isTimeLayoutBase(base: string): boolean {
+  return TIME_LAYOUT_KEYS.has(normalizePlaceholderKey(base));
+}
+
+/** Split any trailing :suffix, including time-format ids such as dmy-dot-24. */
+export function splitPlaceholderSuffix(key: string): { rest: string; suffix: string | null } {
+  const trimmed = key.trim();
+  const m = ANY_SUFFIX_RE.exec(trimmed);
+  if (!m) return { rest: trimmed, suffix: null };
+  return { rest: trimmed.slice(0, m.index), suffix: m[1].toLowerCase() };
+}
+
+function keptSuffix(base: string, suffix: string | null): string | null {
+  if (!suffix) return null;
+  if (isEventPokemonNameBase(base) && LANG_SUFFIX_RE.test(`:${suffix}`)) return suffix;
+  if (isTimeLayoutBase(base) && isTimeFormatId(suffix)) return suffix;
+  return null;
+}
+
+export function canonicalPlaceholderKey(key: string): string {
+  const trimmed = key.trim();
+  const { rest, suffix } = splitPlaceholderSuffix(trimmed);
+  const { base, index } = splitPlaceholderIndex(rest);
+  const canonBase = builtinByNorm.get(normalizePlaceholderKey(base));
+  if (!canonBase) return trimmed;
+  const pin = keptSuffix(canonBase, suffix);
+  if (suffix && !pin) {
+    if (isEventPokemonNameBase(canonBase) || isTimeLayoutBase(canonBase)) {
+      return index != null ? `${canonBase}[${index}]` : canonBase;
+    }
+    return trimmed;
+  }
+  let out = index != null ? `${canonBase}[${index}]` : canonBase;
+  if (pin) out += `:${pin}`;
+  return out;
+}
+
+export function isBuiltinPlaceholder(key: string): boolean {
+  const { rest, suffix } = splitPlaceholderSuffix(key);
+  const { base } = splitPlaceholderIndex(rest);
+  if (
+    suffix &&
+    !keptSuffix(base, suffix) &&
+    !isEventPokemonNameBase(base) &&
+    !isTimeLayoutBase(base)
+  ) {
+    return false;
+  }
+  return builtinByNorm.has(normalizePlaceholderKey(base));
+}
+
+/** True for eventPokemon / eventPokemon[i] (editable name builtins). Language pins are derived. */
+export function isEventPokemonNameKey(key: string): boolean {
+  const { lang } = splitPlaceholderLang(key);
+  if (lang) return false;
   const { base } = splitPlaceholderIndex(key);
+  return isEventPokemonNameBase(base);
+}
+
+export function isEventPokemonBaseKey(key: string): boolean {
+  const { rest, lang } = splitPlaceholderLang(key);
+  const { base } = splitPlaceholderIndex(rest);
+  if (lang) return isEventPokemonNameBase(base);
   const n = normalizePlaceholderKey(base);
   return EVENT_POKEMON_BASE_KEYS.some((k) => normalizePlaceholderKey(k) === n);
 }
@@ -367,6 +427,35 @@ export function resolveBuiltinPlaceholderValues(
   const out: Record<string, string> = {};
   for (const b of BUILTIN_PLACEHOLDERS) {
     out[b.key] = byCanonical[b.key] ?? "";
+  }
+  const clock = (raw: string | undefined) => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec((raw || "").trim());
+    if (!m) return null;
+    const hours = Number(m[1]);
+    const minutes = Number(m[2]);
+    if (hours > 23 || minutes > 59) return null;
+    return { hours, minutes };
+  };
+  const startClock = clock(byCanonical.startTime);
+  const endClock = clock(byCanonical.endTime);
+  for (const id of TIME_FORMAT_IDS) {
+    if (ctx.date) {
+      out[`date:${id}`] = layoutPieces(id as TimeFormatId, {
+        year: ctx.date.year,
+        month: ctx.date.month,
+        day: ctx.date.day,
+        hours: 0,
+        minutes: 0,
+      }).date;
+    } else {
+      out[`date:${id}`] = "";
+    }
+    out[`startTime:${id}`] = startClock
+      ? layoutPieces(id, { year: 2000, month: 1, day: 1, ...startClock }).time
+      : "";
+    out[`endTime:${id}`] = endClock
+      ? layoutPieces(id, { year: 2000, month: 1, day: 1, ...endClock }).time
+      : "";
   }
   // Event-pokemon values (and indexes) come from the backend resolve API.
   if (ctx.eventPokemonValues) {
@@ -470,10 +559,36 @@ export function resolveCustomPlaceholderDefs(
   return resolvePlaceholderDefs(payload, explicit).filter((d) => !isBuiltinPlaceholder(d.key));
 }
 
+function lookupPinnedLang(
+  values: Record<string, string>,
+  key: string,
+): string | undefined {
+  const { rest, lang } = splitPlaceholderLang(key);
+  if (!lang) return undefined;
+  const { base } = splitPlaceholderIndex(rest);
+  if (!isEventPokemonNameBase(base)) return undefined;
+  const hyphen = lang.indexOf("-");
+  if (hyphen > 0) {
+    const regional = lookupPlaceholderValue(values, `${rest}:${lang.slice(0, hyphen)}`);
+    if (regional != null) return regional;
+  }
+  return lookupPlaceholderValue(values, `${rest}:en`);
+}
+
 export function applyPlaceholders(text: string, values: Record<string, string>): string {
   return text.replace(PLACEHOLDER_RE, (_, key: string) => {
     const v = lookupPlaceholderValue(values, key);
     if (v != null) return v;
+    const pinned = lookupPinnedLang(values, key);
+    if (pinned != null) return pinned;
+    const { rest, suffix } = splitPlaceholderSuffix(key);
+    if (suffix) {
+      const { base } = splitPlaceholderIndex(rest);
+      if (isEventPokemonNameBase(base) || isTimeLayoutBase(base)) {
+        const unscoped = lookupPlaceholderValue(values, rest);
+        if (unscoped != null) return unscoped;
+      }
+    }
     // Event-pokemon builtins (incl. OOB indexes) resolve to empty when missing.
     if (isEventPokemonBaseKey(key)) return "";
     return `{{${key}}}`;

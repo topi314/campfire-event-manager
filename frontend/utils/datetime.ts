@@ -1,4 +1,4 @@
-import { guessTimeFormat, isTimeFormatId } from "~/utils/timeFormats";
+import { guessTimeFormat, isTimeFormatId, type TimeFormatId } from "~/utils/timeFormats";
 
 /** Wall-clock datetime for `<input type="datetime-local">`: YYYY-MM-DDTHH:mm */
 
@@ -510,13 +510,17 @@ function clock24(hours: number, minutes: number, sep: ":" | "." | "h"): string {
   return `${pad(hours)}${sep}${pad(minutes)}`;
 }
 
-/** Human-readable wall clock. `format` is a time-format preset id. */
-export function formatDateTimeParts(
-  p: LocalDateTime,
-  format?: string | null,
-  dateOnly = false,
-): string {
-  const id = isTimeFormatId(format) ? format : guessTimeFormat();
+export type LayoutPieces = {
+  date: string;
+  time: string;
+  join: "comma" | "space" | "time-first";
+};
+
+/** Date and clock pieces for a Settings time-format preset. */
+export function layoutPieces(
+  id: TimeFormatId,
+  p: { year: number; month: number; day: number; hours: number; minutes: number },
+): LayoutPieces {
   const mon = MONTH_ABBR[p.month - 1] || pad(p.month);
   const day = String(p.day);
   const dd = pad(p.day);
@@ -524,7 +528,7 @@ export function formatDateTimeParts(
   const yyyy = String(p.year);
   let date = `${day} ${mon} ${yyyy}`;
   let time = clock24(p.hours, p.minutes, ":");
-  let join: "comma" | "space" | "time-first" = "comma";
+  let join: LayoutPieces["join"] = "comma";
   switch (id) {
     case "mdy-12":
       date = `${mon} ${day}, ${yyyy}`;
@@ -592,10 +596,21 @@ export function formatDateTimeParts(
       join = "time-first";
       break;
   }
-  if (dateOnly) return date;
-  if (join === "time-first") return `${time}, ${date}`;
-  if (join === "space") return `${date} ${time}`;
-  return `${date}, ${time}`;
+  return { date, time, join };
+}
+
+/** Human-readable wall clock. `format` is a time-format preset id. */
+export function formatDateTimeParts(
+  p: LocalDateTime,
+  format?: string | null,
+  dateOnly = false,
+): string {
+  const id = isTimeFormatId(format) ? format : guessTimeFormat();
+  const pieces = layoutPieces(id, p);
+  if (dateOnly) return pieces.date;
+  if (pieces.join === "time-first") return `${pieces.time}, ${pieces.date}`;
+  if (pieces.join === "space") return `${pieces.date} ${pieces.time}`;
+  return `${pieces.date}, ${pieces.time}`;
 }
 
 /** Display a datetime-local value (wall clock, no zone conversion). */

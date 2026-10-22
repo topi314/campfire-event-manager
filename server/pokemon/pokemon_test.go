@@ -1,6 +1,7 @@
 package pokemon
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/topi314/campfire-event-manager/internal/eventcategory"
@@ -197,5 +198,42 @@ func TestEnrichFromIndexedGermanName(t *testing.T) {
 	}
 	if values["eventPokemon[1]"] != "Schiggy" {
 		t.Fatalf("kept manual name=%q", values["eventPokemon[1]"])
+	}
+	if values["eventPokemon[1]:en"] != "Squirtle" {
+		t.Fatalf("pinned en=%q", values["eventPokemon[1]:en"])
+	}
+	if values["eventPokemon:en"] != "Squirtle" {
+		t.Fatalf("pinned list en=%q", values["eventPokemon:en"])
+	}
+}
+
+func TestResolveEventPokemonPinnedLanguage(t *testing.T) {
+	m := ResolveEventPokemon("Raid Hour: Squirtle, Wartortle", "Raid Hour", "de", eventcategory.All)
+	if !strings.Contains(m["eventPokemon"], "Schiggy") {
+		t.Fatalf("meetup lang=%q", m["eventPokemon"])
+	}
+	if m["eventPokemon:en"] != "Squirtle, Wartortle" {
+		t.Fatalf("en=%q", m["eventPokemon:en"])
+	}
+	if m["eventPokemon[2]:en"] != "Wartortle" {
+		t.Fatalf("[2]:en=%q", m["eventPokemon[2]:en"])
+	}
+	if m["eventPokemon[1]:de"] == "" || m["eventPokemon[1]:de"] == "Squirtle" {
+		t.Fatalf("[1]:de=%q", m["eventPokemon[1]:de"])
+	}
+	if _, ok := m["eventPokemonCeilingRaid:en"]; ok {
+		t.Fatalf("ceiling should not be language-pinned")
+	}
+}
+
+func TestUnmatchedNamePinsTypedString(t *testing.T) {
+	values := map[string]string{"eventPokemon": "NotARealMon"}
+	overrides := map[string]string{"eventPokemon": "NotARealMon"}
+	EnrichFromNameOverrides(values, overrides, "de")
+	if values["eventPokemon:en"] != "NotARealMon" {
+		t.Fatalf("pinned en=%q", values["eventPokemon:en"])
+	}
+	if values["eventPokemon"] != "NotARealMon" {
+		t.Fatalf("name=%q", values["eventPokemon"])
 	}
 }

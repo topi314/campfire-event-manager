@@ -104,6 +104,13 @@ onBeforeUnmount(() => {
                 </div>
               </li>
             </ul>
+            <p class="muted section-p">
+              <code v-pre>{{date}}</code>, <code v-pre>{{startTime}}</code>, and
+              <code v-pre>{{endTime}}</code> can take a Settings time-format id:
+              <code v-pre>{{date:dmy-dot-24}}</code> (18.10.2026),
+              <code v-pre>{{startTime:mdy-12}}</code> (3:45 PM).
+              Unscoped tokens keep their default layout. Unknown ids fall back to that default.
+            </p>
 
             <h3>Event Pokémon</h3>
             <p class="muted section-p">
@@ -132,6 +139,10 @@ onBeforeUnmount(() => {
               Indexes: <code v-pre>{{eventPokemon[1]}}</code>,
               <code v-pre>{{eventPokemonCeilingRaid[2]}}</code> — first/second species only.
               Unindexed forms are the full comma-joined list. Out of range → empty.
+              Pin a language with <code v-pre>{{eventPokemon:en}}</code> or
+              <code v-pre>{{eventPokemon[2]:de}}</code>. Unscoped
+              <code v-pre>{{eventPokemon}}</code> stays on the meetup language.
+              Unknown codes fall back to English. Ceiling/Floor keys are not translated.
             </p>
 
             <h3>Custom placeholders</h3>

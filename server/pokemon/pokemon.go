@@ -513,6 +513,39 @@ func buildEventPokemonValues(species []*Species, displayNames []string, language
 
 	join := func(parts []string) string { return strings.Join(parts, ", ") }
 	out["eventPokemon"] = join(names)
+
+	langs := map[string]struct{}{}
+	addLang := func(code string) {
+		code = strings.ToLower(strings.TrimSpace(code))
+		if code != "" {
+			langs[code] = struct{}{}
+		}
+	}
+	addLang("en")
+	addLang(language)
+	for i := 0; i < n; i++ {
+		sp := species[i]
+		if sp == nil || sp.Names == nil {
+			continue
+		}
+		for code := range sp.Names {
+			addLang(code)
+		}
+	}
+	for code := range langs {
+		pinned := make([]string, n)
+		for i := 0; i < n; i++ {
+			if species[i] != nil {
+				pinned[i] = LocalizedName(species[i], code)
+				continue
+			}
+			pinned[i] = names[i]
+		}
+		out["eventPokemon:"+code] = join(pinned)
+		for i := 0; i < n; i++ {
+			out[fmt.Sprintf("eventPokemon[%d]:%s", i+1, code)] = pinned[i]
+		}
+	}
 	out["eventPokemonCeilingResearch"] = join(ceilingResearch)
 	out["eventPokemonCeilingRaid"] = join(ceilingRaid)
 	out["eventPokemonCeilingEgg"] = join(ceilingEgg)
@@ -539,17 +572,37 @@ func IsEventPokemonBase(key string) bool {
 	return false
 }
 
+var langSuffixRE = regexp.MustCompile(`(?i):([a-z]{2}(?:-[a-z0-9]+)?)$`)
+
+// SplitLang splits a trailing :lang (e.g. eventPokemon[2]:de → eventPokemon[2], de).
+func SplitLang(key string) (rest, lang string, hasLang bool) {
+	key = strings.TrimSpace(key)
+	m := langSuffixRE.FindStringSubmatchIndex(key)
+	if m == nil {
+		return key, "", false
+	}
+	return key[:m[0]], strings.ToLower(key[m[2]:m[3]]), true
+}
+
 // IsEventPokemonNameKey is true for eventPokemon / eventPokemon[i] (editable name builtins).
+// Language-pinned keys (eventPokemon:en) are derived, not editable overrides.
 func IsEventPokemonNameKey(key string) bool {
-	base, _, _ := SplitIndex(key)
+	rest, _, hasLang := SplitLang(key)
+	if hasLang {
+		return false
+	}
+	base, _, _ := SplitIndex(rest)
 	return strings.EqualFold(strings.TrimSpace(base), "eventPokemon")
 }
 
-// SplitIndex splits "eventPokemon[2]" → ("eventPokemon", 2, true).
+// SplitIndex splits "eventPokemon[2]" or "eventPokemon[2]:de" → ("eventPokemon", 2, true).
 func SplitIndex(key string) (base string, index int, hasIndex bool) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return "", 0, false
+	}
+	if rest, _, hasLang := SplitLang(key); hasLang {
+		key = rest
 	}
 	lb := strings.LastIndexByte(key, '[')
 	if lb < 0 || !strings.HasSuffix(key, "]") {

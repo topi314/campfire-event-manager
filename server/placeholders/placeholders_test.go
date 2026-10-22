@@ -125,3 +125,48 @@ func TestApplyManualEventPokemonOverridesDependents(t *testing.T) {
 		t.Fatalf("expected Gogoat L20 ceiling, got %q", fields.Details)
 	}
 }
+
+func TestApplyTimeLayout(t *testing.T) {
+	start := time.Date(2026, 10, 18, 13, 45, 0, 0, time.UTC)
+	end := start.Add(2 * time.Hour)
+	ctx := Context{
+		EventTime:    start,
+		EventEndTime: end,
+		HasEndTime:   true,
+		TimeZone:     "UTC",
+	}
+	fields := ResolveAndApply(TextFields{
+		Details: "{{date:dmy-dot-24}} {{startTime:mdy-12}} {{endTime:dmy-h}} {{date}} {{date:nope}}",
+	}, ctx, nil)
+	if fields.Details != "18.10.2026 1:45 PM 15 h 45 Oct 18, 2026 Oct 18, 2026" {
+		t.Fatalf("details=%q", fields.Details)
+	}
+}
+
+func TestApplyPinnedEventPokemonLanguage(t *testing.T) {
+	ctx := Context{
+		LiveEventName:    "Raid Hour: Squirtle",
+		Category:         "Raid Hour",
+		Language:         "de",
+		CategoryPatterns: map[string][]string{"Raid Hour": {"Raid Hour"}},
+	}
+	fields := ResolveAndApply(TextFields{
+		Details: "{{eventPokemon}} / {{eventPokemon:en}} / {{eventPokemon:zz}} / {{eventPokemonCeilingRaid:en}}",
+	}, ctx, nil)
+	parts := strings.Split(fields.Details, " / ")
+	if len(parts) != 4 {
+		t.Fatalf("details=%q", fields.Details)
+	}
+	if parts[0] == "Squirtle" || parts[0] == "" {
+		t.Fatalf("meetup lang=%q", parts[0])
+	}
+	if parts[1] != "Squirtle" {
+		t.Fatalf("en=%q", parts[1])
+	}
+	if parts[2] != "Squirtle" {
+		t.Fatalf("unknown lang want english fallback, got %q", parts[2])
+	}
+	if parts[3] != "{{eventPokemonCeilingRaid:en}}" {
+		t.Fatalf("ceiling pin should stay unresolved, got %q", parts[3])
+	}
+}

@@ -7,10 +7,13 @@ import (
 	"time"
 
 	"github.com/topi314/campfire-event-manager/server/pokemon"
+	"github.com/topi314/campfire-event-manager/server/timeformat"
 )
 
-// Match {{key}} or {{key[1]}} tokens.
-var tokenRE = regexp.MustCompile(`\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*(?:\[[0-9]+\])?)\s*\}\}`)
+// Match {{key}}, {{key[1]}}, {{eventPokemon[1]:de}}, and {{date:dmy-dot-24}}.
+var tokenRE = regexp.MustCompile(`\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*(?:\[[0-9]+\])?(?::[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*)?)\s*\}\}`)
+
+var suffixRE = regexp.MustCompile(`(?i):([a-z0-9]+(?:-[a-z0-9]+)*)$`)
 
 // BuiltinKeys lists documented built-in placeholder names (canonical casing, unindexed).
 var BuiltinKeys = []string{
@@ -74,26 +77,74 @@ func NormalizeKey(key string) string {
 	return strings.ToLower(strings.TrimSpace(key))
 }
 
-// baseKey strips a trailing [digits] index for builtin identity checks.
-func baseKey(key string) string {
-	base, _, has := pokemon.SplitIndex(key)
-	if has {
-		return base
+func splitSuffix(key string) (rest, suffix string, has bool) {
+	key = strings.TrimSpace(key)
+	m := suffixRE.FindStringSubmatchIndex(key)
+	if m == nil {
+		return key, "", false
 	}
-	return strings.TrimSpace(key)
+	return key[:m[0]], strings.ToLower(key[m[2]:m[3]]), true
+}
+
+func isTimeLayout(base string) bool {
+	switch strings.ToLower(strings.TrimSpace(base)) {
+	case "date", "starttime", "endtime":
+		return true
+	default:
+		return false
+	}
+}
+
+func keepSuffix(base, suffix string) bool {
+	if suffix == "" {
+		return false
+	}
+	if strings.EqualFold(base, "eventPokemon") {
+		_, _, ok := pokemon.SplitLang(base + ":" + suffix)
+		return ok
+	}
+	return isTimeLayout(base) && timeformat.Valid(suffix)
+}
+
+// baseKey strips a trailing [digits] index.
+// A :lang pin is stripped for eventPokemon names, and a time-format pin for date/startTime/endTime.
+// Any other suffix is left in place so the key is not treated as that builtin.
+func baseKey(key string) string {
+	rest, suffix, has := splitSuffix(key)
+	base, _, _ := pokemon.SplitIndex(rest)
+	if has && !strings.EqualFold(strings.TrimSpace(base), "eventPokemon") && !isTimeLayout(base) {
+		return strings.TrimSpace(key)
+	}
+	_ = suffix
+	return base
 }
 
 // CanonicalKey returns the documented spelling for built-ins; otherwise the trimmed key.
 func CanonicalKey(key string) string {
 	trimmed := strings.TrimSpace(key)
-	base, idx, has := pokemon.SplitIndex(trimmed)
-	if c, ok := builtinByNorm[NormalizeKey(base)]; ok {
-		if has {
-			return fmt.Sprintf("%s[%d]", c, idx)
-		}
-		return c
+	rest, suffix, hasSuffix := splitSuffix(trimmed)
+	base, idx, has := pokemon.SplitIndex(rest)
+	c, ok := builtinByNorm[NormalizeKey(base)]
+	if !ok {
+		return trimmed
 	}
-	return trimmed
+	if hasSuffix && !keepSuffix(c, suffix) {
+		if strings.EqualFold(c, "eventPokemon") || isTimeLayout(c) {
+			if has {
+				return fmt.Sprintf("%s[%d]", c, idx)
+			}
+			return c
+		}
+		return trimmed
+	}
+	out := c
+	if has {
+		out = fmt.Sprintf("%s[%d]", c, idx)
+	}
+	if hasSuffix && keepSuffix(c, suffix) {
+		out += ":" + suffix
+	}
+	return out
 }
 
 // IsBuiltin reports whether key is a built-in placeholder (case-insensitive; index ignored).
@@ -135,6 +186,12 @@ func Apply(text string, values map[string]string) string {
 		if v, ok := Lookup(values, key); ok {
 			return v
 		}
+		if v, ok := lookupPinnedLang(values, key); ok {
+			return v
+		}
+		if v, ok := lookupUnscoped(values, key); ok {
+			return v
+		}
 		base := baseKey(key)
 		if pokemon.IsEventPokemonBase(base) {
 			return ""
@@ -173,9 +230,34 @@ func ResolveBuiltins(ctx Context) map[string]string {
 		out["dateShort"] = local.Format("2006-01-02")
 		out["weekday"] = local.Format("Monday")
 		out["startTime"] = local.Format("15:04")
+		for _, id := range timeformat.IDs() {
+			pieces, ok := timeformat.Layout(id, local)
+			if !ok {
+				continue
+			}
+			out["date:"+id] = pieces.Date
+			out["startTime:"+id] = pieces.Time
+		}
+	} else {
+		for _, id := range timeformat.IDs() {
+			out["date:"+id] = ""
+			out["startTime:"+id] = ""
+		}
 	}
 	if ctx.HasEndTime && !ctx.EventEndTime.IsZero() {
-		out["endTime"] = ctx.EventEndTime.In(loc).Format("15:04")
+		endLocal := ctx.EventEndTime.In(loc)
+		out["endTime"] = endLocal.Format("15:04")
+		for _, id := range timeformat.IDs() {
+			pieces, ok := timeformat.Layout(id, endLocal)
+			if !ok {
+				continue
+			}
+			out["endTime:"+id] = pieces.Time
+		}
+	} else {
+		for _, id := range timeformat.IDs() {
+			out["endTime:"+id] = ""
+		}
 	}
 
 	patterns := ctx.CategoryPatterns
@@ -229,6 +311,50 @@ func ResolveAndApply(fields TextFields, ctx Context, custom map[string]string) T
 	values := MergeValues(ResolveBuiltins(ctx), custom)
 	pokemon.EnrichFromNameOverrides(values, custom, ctx.Language)
 	return ApplyToFields(fields, values)
+}
+
+// lookupPinnedLang resolves eventPokemon:zh-CN via the region prefix, then English.
+func lookupPinnedLang(values map[string]string, key string) (string, bool) {
+	rest, lang, hasLang := pokemon.SplitLang(key)
+	if !hasLang {
+		return "", false
+	}
+	base, _, _ := pokemon.SplitIndex(rest)
+	if !strings.EqualFold(strings.TrimSpace(base), "eventPokemon") {
+		return "", false
+	}
+	if i := strings.IndexByte(lang, '-'); i > 0 {
+		if v, ok := Lookup(values, rest+":"+lang[:i]); ok {
+			return v, true
+		}
+	}
+	if v, ok := Lookup(values, rest+":en"); ok {
+		return v, true
+	}
+	return "", false
+}
+
+// lookupUnscoped maps an unknown pin on eventPokemon or a time token back to the unscoped value.
+func lookupUnscoped(values map[string]string, key string) (string, bool) {
+	rest, suffix, has := splitSuffix(key)
+	if !has || suffix == "" {
+		return "", false
+	}
+	base, idx, hasIdx := pokemon.SplitIndex(rest)
+	if !strings.EqualFold(strings.TrimSpace(base), "eventPokemon") && !isTimeLayout(base) {
+		return "", false
+	}
+	if keepSuffix(base, suffix) {
+		return "", false
+	}
+	unscoped := base
+	if c, ok := builtinByNorm[NormalizeKey(base)]; ok {
+		unscoped = c
+	}
+	if hasIdx {
+		unscoped = fmt.Sprintf("%s[%d]", unscoped, idx)
+	}
+	return Lookup(values, unscoped)
 }
 
 func loadLocation(tz string) *time.Location {

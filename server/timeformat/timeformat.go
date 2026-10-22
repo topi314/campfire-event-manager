@@ -23,3 +23,12 @@ func Valid(id string) bool {
 	_, ok := allowed[id]
 	return ok
 }
+
+// IDs returns every preset id.
+func IDs() []string {
+	out := make([]string, 0, len(allowed))
+	for id := range allowed {
+		out = append(out, id)
+	}
+	return out
+}

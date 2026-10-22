@@ -243,8 +243,17 @@ const selectedClubLabel = computed(() => {
   return (fromList || clubNameFromEvents.value || "").trim();
 });
 
-const eventRows = computed(() =>
-  events.value.map((ev) => {
+function isOngoing(ev: ClubEvent, now = Date.now()): boolean {
+  const start = Date.parse(ev.eventTime);
+  if (!Number.isFinite(start) || start > now) return false;
+  if (!ev.eventEndTime) return true;
+  const end = Date.parse(ev.eventEndTime);
+  return Number.isFinite(end) && end > now;
+}
+
+const eventRows = computed(() => {
+  const now = Date.now();
+  return events.value.map((ev) => {
     const name = (ev.name || "").trim() || "Untitled meetup";
     const cover = coverImageSrc(ev.coverPhotoUrl, apiBase as string);
     const when = formatInstant(ev.eventTime, timeZone.value, timeFormat.value);
@@ -252,6 +261,7 @@ const eventRows = computed(() =>
       ? formatInstant(ev.eventEndTime, timeZone.value, timeFormat.value)
       : "";
     const creator = ev.creator?.displayName || ev.creator?.username || "";
+    const ongoing = isOngoing(ev, now);
     return {
       ev,
       name,
@@ -259,12 +269,13 @@ const eventRows = computed(() =>
       initial: name.slice(0, 1).toUpperCase(),
       when,
       end,
+      ongoing,
       address: (ev.address || "").trim(),
       details: (ev.details || "").trim(),
       creator,
     };
-  }),
-);
+  });
+});
 
 const detailEvent = computed(
   () => events.value.find((e) => e.id === detailEventId.value) || null,
@@ -408,7 +419,7 @@ async function onConfirmDelete() {
           class="event-row"
           role="button"
           tabindex="0"
-          :aria-label="`Open ${row.name}`"
+          :aria-label="row.ongoing ? `Open ${row.name}, ongoing` : `Open ${row.name}`"
           @click="openDetail(row.ev)"
           @keydown.enter.prevent="openDetail(row.ev)"
         >
@@ -417,7 +428,10 @@ async function onConfirmDelete() {
             <span v-else>{{ row.initial }}</span>
           </div>
           <div class="event-body">
-            <strong class="event-name">{{ row.name }}</strong>
+            <strong class="event-name">
+              {{ row.name }}
+              <span v-if="row.ongoing" class="ongoing-badge">Ongoing</span>
+            </strong>
             <div class="event-meta muted">
               <span v-if="selectedClubLabel">{{ selectedClubLabel }}</span>
               <span class="meta-sep">{{ row.when }}</span>
@@ -651,6 +665,18 @@ async function onConfirmDelete() {
   font-size: 1rem;
   font-weight: 600;
   line-height: 1.25;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.ongoing-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
 }
 .event-meta {
   margin-top: 0.4rem;

@@ -89,6 +89,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /api/templates", s.requireAuth(s.createTemplate))
 	mux.HandleFunc("POST /api/templates/import", s.requireAuth(s.importTemplates))
 	mux.HandleFunc("GET /api/templates/shared", s.requireAuth(s.sharedTemplates))
+	mux.HandleFunc("GET /api/templates/shared/facets", s.requireAuth(s.sharedTemplateFacets))
 	mux.HandleFunc("GET /api/templates/{id}", s.requireAuth(s.getTemplate))
 	mux.HandleFunc("PUT /api/templates/{id}", s.requireAuth(s.updateTemplate))
 	mux.HandleFunc("DELETE /api/templates/{id}", s.requireAuth(s.deleteTemplate))

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { MeetupPayload, MeetupTemplate } from "~/types";
+import type { MeetupPayload, MeetupTemplate, TemplatePublisher } from "~/types";
 import { TEMPLATE_LANGUAGES, templateLanguageLabel } from "~/utils/languages";
 import { formatInstantDate } from "~/utils/datetime";
 import { coverImageSrc } from "~/utils/covers";
+import { categoryFilterOptions } from "~/utils/eventCategory";
 
 const { options: TEMPLATE_CATEGORY_OPTIONS } = useEventCategories();
 
@@ -34,6 +35,19 @@ const language = ref("");
 const creator = ref("");
 const sort = ref<SortOption>("published_desc");
 const preview = ref<MeetupTemplate | null>(null);
+const facetCategories = ref<string[]>([]);
+const facetCreators = ref<TemplatePublisher[]>([]);
+
+const categoryOptions = computed(() =>
+  categoryFilterOptions(TEMPLATE_CATEGORY_OPTIONS.value, [
+    ...facetCategories.value,
+    category.value,
+  ]),
+);
+
+function creatorLabel(c: TemplatePublisher) {
+  return (c.displayName || c.username || "").trim();
+}
 
 let ignoreNextQueryWatch = false;
 let applyingFromRoute = false;
@@ -117,7 +131,7 @@ onMounted(async () => {
     return;
   }
   readFiltersFromRoute();
-  await load();
+  await Promise.all([load(), loadFacets()]);
   openHighlight();
 });
 
@@ -177,6 +191,19 @@ function openPreview(t: MeetupTemplate) {
 function closePreview() {
   preview.value = null;
   void pushFiltersToRoute({ path: browseListPath(), replace: true });
+}
+
+async function loadFacets() {
+  try {
+    const data = await api<{ categories: string[]; creators: TemplatePublisher[] }>(
+      "/api/templates/shared/facets",
+    );
+    facetCategories.value = data.categories || [];
+    facetCreators.value = data.creators || [];
+  } catch {
+    facetCategories.value = [];
+    facetCreators.value = [];
+  }
 }
 
 async function load() {
@@ -299,14 +326,24 @@ function isHighlight(t: MeetupTemplate) {
             id="browse-creator"
             v-model="creator"
             type="search"
-            placeholder="Name or username…"
+            list="browse-creators"
+            placeholder="Pick or type a name…"
+            autocomplete="off"
           />
+          <datalist id="browse-creators">
+            <option
+              v-for="c in facetCreators"
+              :key="c.id"
+              :value="creatorLabel(c)"
+              :label="c.username && creatorLabel(c) !== c.username ? `@${c.username}` : undefined"
+            />
+          </datalist>
         </div>
         <div class="field" style="margin-bottom: 0">
           <label for="browse-cat">Category</label>
           <select id="browse-cat" v-model="category">
             <option value="">Any</option>
-            <option v-for="c in TEMPLATE_CATEGORY_OPTIONS" :key="c" :value="c">{{ c }}</option>
+            <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
           </select>
         </div>
         <div class="field" style="margin-bottom: 0">

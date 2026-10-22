@@ -344,6 +344,35 @@ func (s *Server) sharedTemplates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, templates)
 }
 
+func (s *Server) sharedTemplateFacets(w http.ResponseWriter, r *http.Request) {
+	categories, err := s.db.ListPublishedCategories(r.Context(), database.Text(r.URL.Query().Get("publisherId")))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list categories")
+		return
+	}
+	if categories == nil {
+		categories = []string{}
+	}
+	rows, err := s.db.ListPublishedCreators(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list creators")
+		return
+	}
+	creators := make([]UserRef, 0, len(rows))
+	for _, row := range rows {
+		creators = append(creators, UserRef{
+			ID:          row.DiscordUserID,
+			Username:    row.DiscordUserUsername,
+			DisplayName: row.DiscordUserDisplayName,
+			AvatarURL:   row.DiscordUserAvatarUrl,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"categories": categories,
+		"creators":   creators,
+	})
+}
+
 func (s *Server) likeTemplate(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.GetSession(r)
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -519,16 +548,21 @@ func (s *Server) getProfile(w http.ResponseWriter, r *http.Request) {
 		ViewerUserID: "",
 	}
 	view := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("view")))
+	session, hasSession := auth.GetSession(r)
+	if hasSession {
+		f.ViewerUserID = session.Session.UserID
+	}
 	if view == "liked" {
+		if !hasSession || session.Session.UserID != userID {
+			writeError(w, http.StatusForbidden, "liked templates are private")
+			return
+		}
 		f.LikedByUserID = userID
 		if f.Sort == "" {
 			f.Sort = "liked_desc"
 		}
 	} else {
 		f.PublisherID = userID
-	}
-	if session, ok := auth.GetSession(r); ok {
-		f.ViewerUserID = session.Session.UserID
 	}
 	templates, err := s.listPublishedTemplates(r.Context(), f)
 	if err != nil {

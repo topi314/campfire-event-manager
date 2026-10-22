@@ -3,6 +3,7 @@ import type { MeetupPayload, MeetupTemplate, TemplatePublisher } from "~/types";
 import { TEMPLATE_LANGUAGES, templateLanguageLabel } from "~/utils/languages";
 import { formatInstantDate } from "~/utils/datetime";
 import { coverImageSrc } from "~/utils/covers";
+import { categoryFilterOptions } from "~/utils/eventCategory";
 
 const { options: TEMPLATE_CATEGORY_OPTIONS } = useEventCategories();
 
@@ -27,6 +28,25 @@ const language = ref("");
 const sort = ref("published_desc");
 const view = ref<"published" | "liked">("published");
 const preview = ref<MeetupTemplate | null>(null);
+const facetCategories = ref<string[]>([]);
+const seenCategories = ref<string[]>([]);
+
+const categoryOptions = computed(() =>
+  categoryFilterOptions(TEMPLATE_CATEGORY_OPTIONS.value, [
+    ...facetCategories.value,
+    ...seenCategories.value,
+    category.value,
+  ]),
+);
+
+watch(templates, (list) => {
+  const next = new Set(seenCategories.value);
+  for (const t of list) {
+    const name = categoryOf(t);
+    if (name) next.add(name);
+  }
+  seenCategories.value = [...next];
+});
 
 const userId = computed(() => String(route.params.id || ""));
 const isOwnProfile = computed(() => !!user.value && user.value.id === userId.value);
@@ -51,9 +71,14 @@ watch([category, language, sort, userId, view], () => {
   if (userId.value) load();
 });
 
+watch(userId, () => {
+  seenCategories.value = [];
+  facetCategories.value = [];
+});
+
 function readViewFromRoute() {
   const v = typeof route.query.view === "string" ? route.query.view : "";
-  view.value = v === "liked" ? "liked" : "published";
+  view.value = v === "liked" && isOwnProfile.value ? "liked" : "published";
   if (view.value === "liked" && sort.value === "published_desc") {
     sort.value = "liked_desc";
   } else if (view.value === "published" && sort.value === "liked_desc") {
@@ -104,6 +129,7 @@ async function load() {
     );
     profile.value = data.user;
     templates.value = data.templates || [];
+    if (view.value === "published") void loadFacets();
   } catch (e: any) {
     error.value = e.message || "Failed to load profile";
     profile.value = null;
@@ -115,6 +141,18 @@ async function load() {
 
 function onSearchSubmit() {
   load();
+}
+
+async function loadFacets() {
+  if (!userId.value || view.value !== "published") return;
+  try {
+    const data = await api<{ categories: string[] }>(
+      `/api/templates/shared/facets?publisherId=${encodeURIComponent(userId.value)}`,
+    );
+    facetCategories.value = data.categories || [];
+  } catch {
+    facetCategories.value = [];
+  }
 }
 
 function parsePayload(t: MeetupTemplate): MeetupPayload {
@@ -212,14 +250,14 @@ async function toggleLike(t: MeetupTemplate) {
 
       <p class="muted">
         <template v-if="view === 'liked'">
-          Templates {{ isOwnProfile ? "you’ve" : "this Community Ambassador has" }} liked.
+          Templates you’ve liked. Only you can see this list.
         </template>
         <template v-else>
           Published meetup templates from this Community Ambassador.
         </template>
       </p>
 
-      <div class="view-tabs" role="tablist" aria-label="Profile templates">
+      <div v-if="isOwnProfile" class="view-tabs" role="tablist" aria-label="Profile templates">
         <button
           type="button"
           role="tab"
@@ -249,7 +287,7 @@ async function toggleLike(t: MeetupTemplate) {
           <label for="profile-cat">Category</label>
           <select id="profile-cat" v-model="category">
             <option value="">Any</option>
-            <option v-for="c in TEMPLATE_CATEGORY_OPTIONS" :key="c" :value="c">{{ c }}</option>
+            <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
           </select>
         </div>
         <div class="field" style="margin-bottom: 0">
@@ -342,7 +380,7 @@ async function toggleLike(t: MeetupTemplate) {
       </ul>
       <p v-else-if="!loading && profile" class="muted">
         <template v-if="view === 'liked'">
-          {{ isOwnProfile ? "You haven’t liked any templates yet." : "No liked templates yet." }}
+          You haven’t liked any templates yet.
         </template>
         <template v-else>
           No published templates from this user yet.

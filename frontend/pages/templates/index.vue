@@ -6,6 +6,7 @@ import {
   templateLanguageLabel,
 } from "~/utils/languages";
 import { coverImageSrc } from "~/utils/covers";
+import { categoryFilterOptions } from "~/utils/eventCategory";
 
 const { options: TEMPLATE_CATEGORY_OPTIONS } = useEventCategories();
 
@@ -76,6 +77,13 @@ function originCreatorLabel(t: MeetupTemplate) {
   if (!p) return "";
   return (p.displayName || p.username || "").trim();
 }
+
+const categoryOptions = computed(() =>
+  categoryFilterOptions(
+    TEMPLATE_CATEGORY_OPTIONS.value,
+    templates.value.map((t) => categoryLabel(t)),
+  ),
+);
 
 const creatorOptions = computed(() => {
   const byId = new Map<string, string>();
@@ -424,7 +432,7 @@ function downloadMany() {
             <label for="mine-cat">Category</label>
             <select id="mine-cat" v-model="filterCategory">
               <option value="">Any</option>
-              <option v-for="c in TEMPLATE_CATEGORY_OPTIONS" :key="c" :value="c">{{ c }}</option>
+              <option v-for="c in categoryOptions" :key="c" :value="c">{{ c }}</option>
             </select>
           </div>
           <div class="field" style="margin-bottom: 0">

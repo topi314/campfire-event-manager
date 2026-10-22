@@ -298,6 +298,82 @@ func (q *Queries) LikeTemplate(ctx context.Context, arg LikeTemplateParams) (int
 	return result.RowsAffected(), nil
 }
 
+const listPublishedCategories = `-- name: ListPublishedCategories :many
+SELECT DISTINCT btrim(t.template_payload->>'category') AS category
+FROM meetup_templates t
+WHERE t.template_published_at IS NOT NULL
+  AND btrim(COALESCE(t.template_payload->>'category', '')) <> ''
+  AND (
+      $1::text IS NULL
+      OR t.template_discord_user_id = $1
+  )
+ORDER BY 1
+`
+
+func (q *Queries) ListPublishedCategories(ctx context.Context, publisherID pgtype.Text) ([]string, error) {
+	rows, err := q.db.Query(ctx, listPublishedCategories, publisherID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var category string
+		if err := rows.Scan(&category); err != nil {
+			return nil, err
+		}
+		items = append(items, category)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublishedCreators = `-- name: ListPublishedCreators :many
+SELECT DISTINCT
+    u.discord_user_id,
+    u.discord_user_username,
+    u.discord_user_display_name,
+    u.discord_user_avatar_url
+FROM meetup_templates t
+JOIN discord_users u ON u.discord_user_id = t.template_discord_user_id
+WHERE t.template_published_at IS NOT NULL
+ORDER BY u.discord_user_display_name ASC, u.discord_user_username ASC
+`
+
+type ListPublishedCreatorsRow struct {
+	DiscordUserID          string
+	DiscordUserUsername    string
+	DiscordUserDisplayName string
+	DiscordUserAvatarUrl   string
+}
+
+func (q *Queries) ListPublishedCreators(ctx context.Context) ([]ListPublishedCreatorsRow, error) {
+	rows, err := q.db.Query(ctx, listPublishedCreators)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublishedCreatorsRow{}
+	for rows.Next() {
+		var i ListPublishedCreatorsRow
+		if err := rows.Scan(
+			&i.DiscordUserID,
+			&i.DiscordUserUsername,
+			&i.DiscordUserDisplayName,
+			&i.DiscordUserAvatarUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPublishedTemplates = `-- name: ListPublishedTemplates :many
 SELECT
     t.template_id,

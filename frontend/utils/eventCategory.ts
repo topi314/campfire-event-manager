@@ -110,3 +110,19 @@ export function isFixedLocalHourCategory(
       return false;
   }
 }
+
+/** Preset names first, then extra (custom) categories not already listed. */
+export function categoryFilterOptions(presets: readonly string[], extras: readonly string[]): string[] {
+  const seen = new Set(presets.map((name) => name.trim().toLowerCase()));
+  const custom: string[] = [];
+  for (const raw of extras) {
+    const name = raw.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    custom.push(name);
+  }
+  custom.sort((a, b) => a.localeCompare(b));
+  return [...presets, ...custom];
+}

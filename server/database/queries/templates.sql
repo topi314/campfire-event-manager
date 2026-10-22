@@ -309,3 +309,25 @@ FROM meetup_template_likes l
 JOIN discord_users u ON u.discord_user_id = l.discord_user_id
 WHERE l.template_id = ANY(sqlc.arg('template_ids')::bigint[])
 ORDER BY l.liked_at DESC, u.discord_user_username ASC;
+
+-- name: ListPublishedCategories :many
+SELECT DISTINCT btrim(t.template_payload->>'category') AS category
+FROM meetup_templates t
+WHERE t.template_published_at IS NOT NULL
+  AND btrim(COALESCE(t.template_payload->>'category', '')) <> ''
+  AND (
+      sqlc.narg('publisher_id')::text IS NULL
+      OR t.template_discord_user_id = sqlc.narg('publisher_id')
+  )
+ORDER BY 1;
+
+-- name: ListPublishedCreators :many
+SELECT DISTINCT
+    u.discord_user_id,
+    u.discord_user_username,
+    u.discord_user_display_name,
+    u.discord_user_avatar_url
+FROM meetup_templates t
+JOIN discord_users u ON u.discord_user_id = t.template_discord_user_id
+WHERE t.template_published_at IS NOT NULL
+ORDER BY u.discord_user_display_name ASC, u.discord_user_username ASC;

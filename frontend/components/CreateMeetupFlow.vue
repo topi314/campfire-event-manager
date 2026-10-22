@@ -12,12 +12,14 @@ import type {
 } from "~/types";
 import type { LatLngPoint } from "~/components/LocationPicker.vue";
 import {
+  addMinutesToLocal,
   ensureMinMeetupEnd,
   formatLocalDateTime,
   instantToLocalInput,
-  isMeetupDurationValid,
   isMeetupWithinLiveEventWindow,
   liveEventWindowBounds,
+  MAX_MEETUP_DURATION_MINUTES,
+  meetupDurationError,
   MIN_MEETUP_DURATION_MINUTES,
   parseLocalDateTime,
 } from "~/utils/datetime";
@@ -1135,6 +1137,16 @@ const minEndTime = computed(() =>
   draft.eventTime ? ensureMinMeetupEnd(draft.eventTime, null) : "",
 );
 
+/** Latest allowed end for `<input type="datetime-local" :max>`. */
+const maxEndTime = computed(() =>
+  draft.eventTime ? addMinutesToLocal(draft.eventTime, MAX_MEETUP_DURATION_MINUTES) : "",
+);
+
+const durationError = computed(() => {
+  if (!draft.eventTime || !draft.eventEndTime) return "";
+  return meetupDurationError(draft.eventTime, draft.eventEndTime) ?? "";
+});
+
 const selectedLiveEventWindowLabel = computed(() => {
   const ev = selectedLiveEvent.value;
   if (!ev) return "";
@@ -1175,9 +1187,8 @@ function validateDraft(): string | null {
   if (!draft.eventTime) return "Start time is required";
   if (!draft.eventEndTime) return "End time is required";
   draft.eventEndTime = ensureMinMeetupEnd(draft.eventTime, draft.eventEndTime);
-  if (!isMeetupDurationValid(draft.eventTime, draft.eventEndTime)) {
-    return `End must be at least ${MIN_MEETUP_DURATION_MINUTES} minutes after start`;
-  }
+  const durationIssue = meetupDurationError(draft.eventTime, draft.eventEndTime);
+  if (durationIssue) return durationIssue;
   if (liveEventWindowError.value) return liveEventWindowError.value;
   return null;
 }
@@ -1980,14 +1991,19 @@ function templateOptionLabel(t: MeetupTemplate) {
                 type="datetime-local"
                 required
                 :min="minEndTime"
+                :max="maxEndTime"
               />
             </div>
           </div>
           <p class="hint muted" style="margin-top: -0.35rem">
-            {{ timeZone }}; min {{ MIN_MEETUP_DURATION_MINUTES }} min
+            {{ timeZone }}; min {{ MIN_MEETUP_DURATION_MINUTES }} min · max
+            {{ MAX_MEETUP_DURATION_MINUTES / 60 }} h
             <template v-if="selectedLiveEvent && selectedLiveEventWindowLabel">
               · must be within {{ selectedLiveEventWindowLabel }}
             </template>
+          </p>
+          <p v-if="durationError" class="error" style="margin-top: 0.35rem">
+            {{ durationError }}
           </p>
           <p v-if="liveEventWindowError" class="error" style="margin-top: 0.35rem">
             {{ liveEventWindowError }}

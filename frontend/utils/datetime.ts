@@ -5,6 +5,9 @@ import { guessTimeFormat, isTimeFormatId } from "~/utils/timeFormats";
 /** Minimum meetup length (Campfire create/edit + templates). */
 export const MIN_MEETUP_DURATION_MINUTES = 15;
 
+/** Maximum meetup length (create/edit). Exactly 24 hours is allowed. */
+export const MAX_MEETUP_DURATION_MINUTES = 24 * 60;
+
 export type TimeOfDay = { hours: number; minutes: number };
 
 export type CalendarDate = { year: number; month: number; day: number }; // month 1–12
@@ -361,11 +364,24 @@ export function localDateTimeDiffMs(start: string, end: string): number | null {
   return endMs - startMs;
 }
 
-/** True when end is at least MIN_MEETUP_DURATION_MINUTES after start. */
+/** True when end is between the min and max meetup length after start. */
 export function isMeetupDurationValid(start: string, end: string): boolean {
+  return meetupDurationError(start, end) == null;
+}
+
+/**
+ * Why a meetup length is rejected, or null when it is within min and max.
+ * Unparseable times are treated as too short so callers keep a hard failure.
+ */
+export function meetupDurationError(start: string, end: string): string | null {
   const diff = localDateTimeDiffMs(start, end);
-  if (diff == null) return false;
-  return diff >= MIN_MEETUP_DURATION_MINUTES * 60_000;
+  if (diff == null || diff < MIN_MEETUP_DURATION_MINUTES * 60_000) {
+    return `End must be at least ${MIN_MEETUP_DURATION_MINUTES} minutes after start`;
+  }
+  if (diff > MAX_MEETUP_DURATION_MINUTES * 60_000) {
+    return "Meetup cannot be longer than 24 hours";
+  }
+  return null;
 }
 
 /**

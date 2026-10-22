@@ -12,6 +12,9 @@ import (
 // minMeetupDuration is the shortest allowed meetup length.
 const minMeetupDuration = 15 * time.Minute
 
+// maxMeetupDuration is the longest allowed meetup length. Exactly 24 hours is allowed.
+const maxMeetupDuration = 24 * time.Hour
+
 type meetupScheduleRequest struct {
 	TimeZone  string `json:"timeZone"`
 	Date      string `json:"date"`
@@ -61,7 +64,7 @@ func (s *Server) campfireMeetupSchedule(w http.ResponseWriter, r *http.Request) 
 }
 
 // resolveMeetupCampfireTimes converts create/edit wall clocks to RFC3339 UTC.
-// End time is required and must be at least minMeetupDuration after start.
+// End time is required and must fall between minMeetupDuration and maxMeetupDuration after start.
 func (s *Server) resolveMeetupCampfireTimes(r *http.Request, eventTime, eventEndTime, timeZone string) (string, string, error) {
 	tz := s.resolveTimeZone(r, timeZone)
 	start, err := meetuptime.WallToUTC(eventTime, tz)
@@ -80,6 +83,9 @@ func (s *Server) resolveMeetupCampfireTimes(r *http.Request, eventTime, eventEnd
 	}
 	if end.Sub(start) < minMeetupDuration {
 		return "", "", fmt.Errorf("meetup must be at least %d minutes long", int(minMeetupDuration/time.Minute))
+	}
+	if end.Sub(start) > maxMeetupDuration {
+		return "", "", fmt.Errorf("meetup cannot be longer than 24 hours")
 	}
 	return meetuptime.FormatRFC3339(start), meetuptime.FormatRFC3339(end), nil
 }

@@ -46,7 +46,10 @@ watch(token, async (t, prev) => {
   <div class="layout">
     <header class="topbar">
       <div>
-        <h1>Campfire Event Manager</h1>
+        <div class="brand">
+          <img class="brand-mark" src="/favicon.svg" alt="" />
+          <h1>Campfire Event Manager</h1>
+        </div>
         <nav class="primary-nav" aria-label="Main">
           <div class="nav-group">
             <NuxtLink to="/create">Create</NuxtLink>

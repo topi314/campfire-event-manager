@@ -216,12 +216,25 @@ export type ClubEvent = {
   allInvited?: boolean;
   createdByCommunityAmbassador?: boolean;
   campfireLiveEventId?: string;
+  campfireLiveEvent?: {
+    id: string;
+    eventName?: string;
+    startTimestamp?: string;
+    endTimestamp?: string;
+  } | null;
   discordChannelId?: string;
+  discordInterested?: number;
+  checkedInMembersCount?: number;
+  passcode?: string;
+  visibility?: string;
+  members?: { totalCount?: number } | null;
   clubId: string;
   creator?: {
     id: string;
     username: string;
     displayName: string;
+    avatarUrl?: string;
+    badges?: { badgeType: string; alias: string }[];
   };
 };
 

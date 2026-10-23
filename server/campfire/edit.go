@@ -24,12 +24,30 @@ type ClubEvent struct {
 	AllInvited                   bool   `json:"allInvited"`
 	CreatedByCommunityAmbassador bool   `json:"createdByCommunityAmbassador"`
 	CampfireLiveEventID          string `json:"campfireLiveEventId"`
-	DiscordChannelID             string `json:"discordChannelId,omitempty"`
-	ClubID                       string `json:"clubId"`
-	Creator                      struct {
+	CampfireLiveEvent            *struct {
+		ID             string `json:"id"`
+		EventName      string `json:"eventName"`
+		StartTimestamp string `json:"startTimestamp"`
+		EndTimestamp   string `json:"endTimestamp"`
+	} `json:"campfireLiveEvent,omitempty"`
+	DiscordChannelID      string `json:"discordChannelId,omitempty"`
+	DiscordInterested     *int   `json:"discordInterested,omitempty"`
+	CheckedInMembersCount *int   `json:"checkedInMembersCount,omitempty"`
+	Passcode              string `json:"passcode,omitempty"`
+	Visibility            string `json:"visibility,omitempty"`
+	Members               *struct {
+		TotalCount int `json:"totalCount"`
+	} `json:"members,omitempty"`
+	ClubID  string `json:"clubId"`
+	Creator struct {
 		ID          string `json:"id"`
 		Username    string `json:"username"`
 		DisplayName string `json:"displayName"`
+		AvatarURL   string `json:"avatarUrl,omitempty"`
+		Badges      []struct {
+			BadgeType string `json:"badgeType"`
+			Alias     string `json:"alias"`
+		} `json:"badges,omitempty"`
 	} `json:"creator"`
 }
 
@@ -70,7 +88,8 @@ type ActiveEventsResult struct {
 // ActiveEvents returns one page of club meetups.
 // archived selects the past feed (archivedFeed); otherwise the upcoming/ongoing feed.
 // When lite is true, skips heavy fields (details, permissions) for list UIs.
-// The past feed is always the lite query. Location stays so the events list can show a map pin.
+// Location stays on the lite query so the events list can show a map pin.
+// Event loads one meetup, including details, for the detail view.
 // Discord channels are loaded separately via DiscordSettings.
 func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first int, after string, lite bool, archived bool) (ActiveEventsResult, error) {
 	out := ActiveEventsResult{
@@ -81,7 +100,10 @@ func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first i
 	}
 	query := queryActiveEvents
 	if archived {
-		query = queryArchivedEventsLite
+		query = queryArchivedEvents
+		if lite {
+			query = queryArchivedEventsLite
+		}
 	} else if lite {
 		query = queryActiveEventsLite
 	}
@@ -124,6 +146,25 @@ func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first i
 	out.EndCursor = feed.PageInfo.EndCursor
 	out.HasNextPage = feed.PageInfo.HasNextPage
 	return out, nil
+}
+
+type eventResp struct {
+	Event *ClubEvent `json:"event"`
+}
+
+// Event returns one meetup, including details.
+func (c *Client) Event(ctx context.Context, token, eventID string) (*ClubEvent, error) {
+	var resp eventResp
+	if err := c.Do(ctx, token, queryEvent, eventVars{ID: eventID}, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Event == nil || strings.TrimSpace(resp.Event.ID) == "" {
+		return nil, fmt.Errorf("meetup not found")
+	}
+	ev := *resp.Event
+	ev.EventTime = meetuptime.NormalizeCampfireInstantRFC3339(ev.EventTime)
+	ev.EventEndTime = meetuptime.NormalizeCampfireInstantRFC3339(ev.EventEndTime)
+	return &ev, nil
 }
 
 // NullableLiveEventID is a Campfire live-event id on editEvent.

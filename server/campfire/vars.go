@@ -11,6 +11,10 @@ type activeEventsVars struct {
 	After  string `json:"after,omitempty"`
 }
 
+type eventVars struct {
+	ID string `json:"id"`
+}
+
 type clubMembersVars struct {
 	ClubID string `json:"clubId"`
 	First  int    `json:"first"`

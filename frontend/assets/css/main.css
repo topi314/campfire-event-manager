@@ -142,7 +142,21 @@ label {
   margin-bottom: 1.5rem;
 }
 
-.topbar h1 {
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.brand-mark {
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border-radius: 0.45rem;
+}
+
+.topbar h1,
+.brand h1 {
   margin: 0;
   font-size: 1.15rem;
   font-weight: 600;
@@ -452,6 +466,11 @@ label {
 .login-card {
   width: min(420px, 100%);
   text-align: center;
+}
+
+.login-card .brand {
+  justify-content: center;
+  margin-bottom: 0.75rem;
 }
 
 .login-card h1 {

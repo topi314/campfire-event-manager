@@ -1,0 +1,41 @@
+query Event_Query($id: ID!) {
+  event(id: $id) {
+    id
+    name
+    visibility
+    address
+    location
+    coverPhotoUrl
+    details
+    eventTime
+    eventEndTime
+    commentsPermissions
+    allInvited
+    createdByCommunityAmbassador
+    campfireLiveEventId
+    campfireLiveEvent {
+      id
+      eventName
+      startTimestamp
+      endTimestamp
+    }
+    discordChannelId
+    discordInterested
+    checkedInMembersCount
+    passcode
+    clubId
+    members(first: 1) {
+      totalCount
+    }
+    creator {
+      id
+      username
+      displayName
+      avatarUrl
+      badges {
+        badgeType
+        alias
+      }
+    }
+  }
+}

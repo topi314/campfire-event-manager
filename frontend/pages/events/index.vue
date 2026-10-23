@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import type { Club, ClubEvent } from "~/types";
+import type { Club, ClubDiscordSettings, ClubEvent } from "~/types";
 import caStarUrl from "~/assets/images/ca-star.png";
+import { isCommunityAmbassador } from "~/composables/useCampfireSession";
 import { isCampfireTokenError } from "~/composables/useSessionToken";
 import { coverImageSrc } from "~/utils/covers";
-import { formatInstant } from "~/utils/datetime";
+import { formatInstant, formatInstantRangeEnd } from "~/utils/datetime";
 import { parseCampfireLocation } from "~/utils/location";
 
 const { user, loaded, ensureAuth } = useAuth();
@@ -43,6 +44,10 @@ const selectedIds = ref<Set<string>>(new Set());
 const confirmDeleteId = ref<string | null>(null);
 const confirmBulk = ref(false);
 const detailEventId = ref<string | null>(null);
+const detailLoadingId = ref<string | null>(null);
+const detailLoadedIds = ref<Set<string>>(new Set());
+const clubDiscord = ref<Record<string, ClubDiscordSettings>>({});
+const clubDiscordPending = ref<Set<string>>(new Set());
 /** Ignore watchers until first bootstrap finishes. */
 const ready = ref(false);
 
@@ -69,9 +74,15 @@ onMounted(async () => {
   ready.value = true;
 });
 
+watch(detailEventId, (id) => {
+  if (!import.meta.client) return;
+  document.body.style.overflow = id ? "hidden" : "";
+});
+
 onUnmounted(() => {
   window.removeEventListener("keydown", onDetailKeydown);
   loadMoreObserver?.disconnect();
+  if (import.meta.client) document.body.style.overflow = "";
 });
 
 watch(token, async (t) => {
@@ -238,6 +249,7 @@ async function loadEvents(clubId: string, opts?: { reset?: boolean }) {
     events.value = [];
     eventsCursor.value = "";
     eventsHasMore.value = false;
+    detailLoadedIds.value = new Set();
   }
   eventsInflightKey = key;
   eventsInflight = (async () => {
@@ -345,9 +357,12 @@ const eventRows = computed(() => {
     const name = (ev.name || "").trim() || "Untitled meetup";
     const cover = coverImageSrc(ev.coverPhotoUrl, apiBase as string);
     const when = formatInstant(ev.eventTime, timeZone.value, timeFormat.value);
-    const end = ev.eventEndTime
-      ? formatInstant(ev.eventEndTime, timeZone.value, timeFormat.value)
-      : "";
+    const end = formatInstantRangeEnd(
+      ev.eventTime,
+      ev.eventEndTime,
+      timeZone.value,
+      timeFormat.value,
+    );
     const creator = ev.creator?.displayName || ev.creator?.username || "";
     const ongoing = isOngoing(ev, now);
     return {
@@ -371,6 +386,35 @@ const detailEvent = computed(
   () => events.value.find((e) => e.id === detailEventId.value) || null,
 );
 
+const detailPoint = computed(() => {
+  const ev = detailEvent.value;
+  return ev ? parseCampfireLocation(ev.location) : null;
+});
+
+const detailMapsHref = computed(() => {
+  const point = detailPoint.value;
+  if (point) {
+    return `https://www.google.com/maps/search/?api=1&query=${point.lat},${point.lng}`;
+  }
+  const address = (detailEvent.value?.address || "").trim();
+  if (!address) return "";
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+});
+
+function formatCoord(n: number) {
+  return n.toFixed(5);
+}
+
+const detailHostIsCA = computed(() =>
+  isCommunityAmbassador({
+    id: "",
+    username: "",
+    displayName: "",
+    avatarUrl: "",
+    badges: detailEvent.value?.creator?.badges || [],
+  }),
+);
+
 const detailRow = computed(
   () => eventRows.value.find((r) => r.ev.id === detailEventId.value) || null,
 );
@@ -392,8 +436,63 @@ function eventAriaLabel(row: {
   return parts.join(", ");
 }
 
+const detailDiscordConnected = computed(() => {
+  const clubId = (detailEvent.value?.clubId || selectedClubId.value || "").trim();
+  return !!clubDiscord.value[clubId]?.available;
+});
+
+async function ensureClubDiscord(clubId: string) {
+  const id = clubId.trim();
+  if (!id || !token.value || clubDiscord.value[id] || clubDiscordPending.value.has(id)) return;
+  const pending = new Set(clubDiscordPending.value);
+  pending.add(id);
+  clubDiscordPending.value = pending;
+  try {
+    const settings = await api<ClubDiscordSettings>(
+      `/api/campfire/clubs/${encodeURIComponent(id)}/discord`,
+      { headers: authHeaders() },
+    );
+    clubDiscord.value = { ...clubDiscord.value, [id]: settings };
+  } catch {
+    clubDiscord.value = {
+      ...clubDiscord.value,
+      [id]: { available: false, channels: [] },
+    };
+  } finally {
+    const next = new Set(clubDiscordPending.value);
+    next.delete(id);
+    clubDiscordPending.value = next;
+  }
+}
+
 function openDetail(ev: ClubEvent) {
   detailEventId.value = ev.id;
+  void ensureClubDiscord(ev.clubId || selectedClubId.value);
+  if (detailLoadedIds.value.has(ev.id) || !token.value) return;
+  void loadEventDetail(ev.id);
+}
+
+async function loadEventDetail(id: string) {
+  detailLoadingId.value = id;
+  try {
+    const full = await api<ClubEvent>(`/api/campfire/meetups/${encodeURIComponent(id)}`, {
+      headers: authHeaders(),
+    });
+    if (!events.value.some((ev) => ev.id === id)) return;
+    events.value = events.value.map((ev) =>
+      ev.id === id ? { ...ev, ...full, clubId: ev.clubId || full.clubId } : ev,
+    );
+    const next = new Set(detailLoadedIds.value);
+    next.add(id);
+    detailLoadedIds.value = next;
+  } catch (e: any) {
+    if (detailEventId.value === id) {
+      error.value = e.message || "Failed to load meetup";
+    }
+    if (isCampfireTokenError(e)) invalidateToken();
+  } finally {
+    if (detailLoadingId.value === id) detailLoadingId.value = null;
+  }
 }
 
 function closeDetail() {
@@ -788,7 +887,7 @@ async function onConfirmDelete() {
             <div class="event-meta muted">
               <span v-if="selectedClubLabel">{{ selectedClubLabel }}</span>
               <span class="meta-sep">{{ row.when }}</span>
-              <span v-if="row.end" class="meta-sep">→ {{ row.end }}</span>
+              <span v-if="row.end">→ {{ row.end }}</span>
               <span v-if="row.address" class="meta-sep">{{ row.address }}</span>
               <span v-if="row.creator" class="meta-sep">by {{ row.creator }}</span>
             </div>
@@ -841,7 +940,7 @@ async function onConfirmDelete() {
 
     <div
       v-if="detailEvent && detailRow"
-      class="modal-backdrop"
+      class="modal-backdrop event-detail-backdrop"
       @click.self="!busy && closeDetail()"
     >
       <div
@@ -851,7 +950,8 @@ async function onConfirmDelete() {
         aria-labelledby="event-detail-title"
       >
         <div class="detail-head">
-          <div>
+          <img v-if="detailRow.cover" class="detail-cover" :src="detailRow.cover" alt="" />
+          <div class="detail-head-text">
             <h2 id="event-detail-title" class="detail-title">
               {{ detailRow.name }}
               <span
@@ -876,9 +976,28 @@ async function onConfirmDelete() {
                 title="Associated with a live event"
               />
             </h2>
-            <p v-if="selectedClubLabel || detailRow.creator" class="muted detail-sub">
-              <span v-if="selectedClubLabel">{{ selectedClubLabel }}</span>
-              <span v-if="detailRow.creator" class="meta-sep">by {{ detailRow.creator }}</span>
+            <p v-if="detailRow.creator || selectedClubLabel" class="detail-host">
+              <template v-if="detailRow.creator">
+                <span class="detail-host-avatar-wrap">
+                  <img
+                    v-if="detailEvent.creator?.avatarUrl"
+                    class="detail-host-avatar"
+                    :src="detailEvent.creator.avatarUrl"
+                    alt=""
+                  />
+                  <span v-else class="detail-host-avatar detail-host-fallback" aria-hidden="true">
+                    {{ detailRow.creator.slice(0, 1).toUpperCase() }}
+                  </span>
+                  <img
+                    v-if="detailHostIsCA"
+                    class="detail-host-star"
+                    :src="caStarUrl"
+                    alt="Community Ambassador"
+                  />
+                </span>
+                <span class="detail-host-name">{{ detailRow.creator }}</span>
+              </template>
+              <span v-if="selectedClubLabel" class="muted detail-host-club">{{ selectedClubLabel }}</span>
             </p>
           </div>
           <button type="button" class="icon-close" aria-label="Close" @click="closeDetail">
@@ -887,22 +1006,65 @@ async function onConfirmDelete() {
         </div>
 
         <div class="detail-body">
-          <img v-if="detailRow.cover" class="detail-cover" :src="detailRow.cover" alt="" />
-          <dl class="detail-meta">
-            <dt>When</dt>
-            <dd>
-              {{ detailRow.when }}
-              <template v-if="detailRow.end"> – {{ detailRow.end }}</template>
-            </dd>
-            <template v-if="detailRow.address">
-              <dt>Address</dt>
-              <dd>{{ detailRow.address }}</dd>
-            </template>
-            <template v-if="detailRow.details">
-              <dt>Description</dt>
-              <dd class="pre">{{ detailRow.details }}</dd>
-            </template>
-          </dl>
+          <p v-if="detailLoadingId === detailEvent.id" class="muted detail-loading">Loading details…</p>
+          <div v-else-if="detailLoadedIds.has(detailEvent.id)" class="detail-stats">
+            <div class="stat">
+              <strong>{{ detailEvent.members?.totalCount ?? 0 }}</strong>
+              <span>Interested</span>
+            </div>
+            <div class="stat">
+              <strong>{{ detailEvent.checkedInMembersCount ?? 0 }}</strong>
+              <span>Checked in</span>
+            </div>
+            <div v-if="detailDiscordConnected" class="stat">
+              <strong>{{ detailEvent.discordInterested ?? 0 }}</strong>
+              <span>Discord</span>
+            </div>
+          </div>
+          <div class="detail-facts">
+            <div
+              class="fact"
+              :class="{ 'fact-wide': !detailEvent.campfireLiveEvent?.eventName }"
+            >
+              <span class="fact-label">When</span>
+              <span>
+                {{ detailRow.when }}
+                <template v-if="detailRow.end"> – {{ detailRow.end }}</template>
+              </span>
+            </div>
+            <div v-if="detailEvent.campfireLiveEvent?.eventName" class="fact">
+              <span class="fact-label">Live event</span>
+              <span>{{ detailEvent.campfireLiveEvent.eventName }}</span>
+            </div>
+            <div v-if="(detailEvent.passcode || '').trim()" class="fact">
+              <span class="fact-label">Passcode</span>
+              <span>{{ detailEvent.passcode }}</span>
+            </div>
+          </div>
+          <div v-if="detailRow.details" class="detail-copy">
+            <span class="fact-label">Description</span>
+            <p class="pre">{{ detailRow.details }}</p>
+          </div>
+          <div v-if="detailPoint || detailRow.address" class="detail-place">
+            <a
+              v-if="detailMapsHref"
+              class="detail-address"
+              :href="detailMapsHref"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span v-if="detailRow.address">{{ detailRow.address }}</span>
+              <span v-if="detailPoint" class="detail-coords">
+                {{ formatCoord(detailPoint.lat) }}, {{ formatCoord(detailPoint.lng) }}
+              </span>
+            </a>
+            <LocationPicker
+              v-if="detailPoint"
+              class="detail-map"
+              :model-value="detailPoint"
+              readonly
+            />
+          </div>
         </div>
 
         <div class="modal-actions">
@@ -1173,8 +1335,12 @@ async function onConfirmDelete() {
 .detail-head {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  align-items: flex-start;
+  gap: 0.85rem;
+  align-items: center;
+}
+.detail-head-text {
+  flex: 1;
+  min-width: 0;
 }
 .detail-head h2 {
   margin: 0 0 0.25rem;
@@ -1189,8 +1355,54 @@ async function onConfirmDelete() {
   margin: 0;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.35rem 0.75rem;
   font-size: 0.85rem;
+}
+.detail-host {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.35rem 0 0.15rem;
+}
+.detail-host-name {
+  font-size: 1rem;
+  font-weight: 600;
+}
+.detail-host-club {
+  font-size: 0.9rem;
+}
+.detail-host-avatar-wrap {
+  position: relative;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+}
+.detail-host-avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  display: block;
+}
+.detail-host-star {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  width: 0.95rem;
+  height: 0.95rem;
+  object-fit: contain;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.75));
+  pointer-events: none;
+}
+.detail-host-fallback {
+  display: grid;
+  place-items: center;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 .icon-close {
   border: none;
@@ -1208,35 +1420,110 @@ async function onConfirmDelete() {
   margin-top: 1rem;
 }
 .detail-cover {
-  width: 100%;
-  max-height: 200px;
+  width: 72px;
+  height: 72px;
   object-fit: cover;
-  border-radius: var(--radius);
+  border-radius: 1.25rem;
   border: 1px solid var(--border);
-  margin-bottom: 1rem;
+  flex-shrink: 0;
   display: block;
 }
-.detail-meta {
-  margin: 0;
+.detail-loading {
+  margin: 0 0 0.85rem;
+}
+.detail-stats {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.45rem 0.85rem;
-  font-size: 0.92rem;
+  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
 }
-.detail-meta dt {
-  margin: 0;
+.stat {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-input) 55%, var(--bg-elevated));
+}
+.stat strong {
+  display: block;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+.stat span {
   color: var(--muted);
-  font-weight: 500;
+  font-size: 0.75rem;
 }
-.detail-meta dd {
+.detail-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.fact {
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-input) 40%, var(--bg-elevated));
+}
+.fact-wide {
+  grid-column: 1 / -1;
+}
+.fact-label {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.detail-copy {
+  margin-top: 0.85rem;
+}
+.detail-copy .pre {
   margin: 0;
-}
-.detail-meta dd.pre {
   white-space: pre-wrap;
   word-break: break-word;
 }
+.event-detail-backdrop {
+  overscroll-behavior: none;
+}
+.event-detail-modal {
+  width: min(640px, 100%);
+  max-height: min(92vh, 52rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
 .event-detail-modal .modal-actions {
   flex-wrap: wrap;
+}
+.detail-place {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+}
+.detail-address {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-input) 40%, var(--bg-elevated));
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.detail-address:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.detail-coords {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.detail-map :deep(.location-map) {
+  height: 200px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 @media (max-width: 560px) {
   .feed-bar {
@@ -1244,6 +1531,9 @@ async function onConfirmDelete() {
   }
   .filters {
     flex-basis: 12rem;
+    grid-template-columns: 1fr;
+  }
+  .detail-facts {
     grid-template-columns: 1fr;
   }
   .event-row {

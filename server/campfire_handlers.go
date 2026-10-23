@@ -178,6 +178,29 @@ func (s *Server) campfireClubDiscord(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, settings)
 }
 
+func (s *Server) campfireGetMeetup(w http.ResponseWriter, r *http.Request) {
+	token, ok := s.requireCampfireToken(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "missing Campfire Authorization Bearer token")
+		return
+	}
+	eventID := strings.TrimSpace(r.PathValue("eventId"))
+	if eventID == "" {
+		writeError(w, http.StatusBadRequest, "eventId required")
+		return
+	}
+	ev, err := s.campfire.Event(r.Context(), token, eventID)
+	if err != nil {
+		if campfire.IsAuthError(err) {
+			writeError(w, http.StatusUnauthorized, "invalid Campfire token")
+			return
+		}
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ev)
+}
+
 func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 	token, ok := s.requireCampfireToken(r)
 	if !ok {

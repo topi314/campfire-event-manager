@@ -11,7 +11,10 @@ onMounted(async () => {
 <template>
   <div class="login-page">
     <div class="panel login-card">
-      <h1>Campfire Event Manager</h1>
+      <div class="brand">
+        <img class="brand-mark" src="/favicon.svg" alt="" />
+        <h1>Campfire Event Manager</h1>
+      </div>
       <p class="muted">
         Sign in with Discord. Access is limited to Community Ambassadors (configured guild or
         whitelist).

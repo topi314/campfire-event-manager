@@ -19,8 +19,14 @@ var queryActiveEvents string
 //go:embed queries/active_events_lite.graphql
 var queryActiveEventsLite string
 
+//go:embed queries/archived_events.graphql
+var queryArchivedEvents string
+
 //go:embed queries/archived_events_lite.graphql
 var queryArchivedEventsLite string
+
+//go:embed queries/event.graphql
+var queryEvent string
 
 //go:embed queries/live_events.graphql
 var queryLiveEvents string

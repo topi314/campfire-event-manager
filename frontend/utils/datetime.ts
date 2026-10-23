@@ -640,6 +640,32 @@ export function formatInstant(
   return parts ? formatDateTimeParts(parts, timeFormat) : value;
 }
 
+/** End of a range. Same local calendar day as `start` keeps only the clock time. */
+export function formatInstantRangeEnd(
+  start: string | undefined | null,
+  end: string | undefined | null,
+  timeZone?: string,
+  timeFormat?: string | null,
+): string {
+  if (!end?.trim()) return "";
+  const endDate = new Date(end);
+  if (Number.isNaN(endDate.getTime())) return end;
+  const zone = timeZone || browserTimeZone();
+  const endParts = partsInTimeZone(endDate, zone);
+  if (!endParts) return end;
+  const startDate = start?.trim() ? new Date(start) : null;
+  const startParts =
+    startDate && !Number.isNaN(startDate.getTime()) ? partsInTimeZone(startDate, zone) : null;
+  const sameDay =
+    !!startParts &&
+    startParts.year === endParts.year &&
+    startParts.month === endParts.month &&
+    startParts.day === endParts.day;
+  if (!sameDay) return formatDateTimeParts(endParts, timeFormat);
+  const id = isTimeFormatId(timeFormat) ? timeFormat : guessTimeFormat();
+  return layoutPieces(id, endParts).time;
+}
+
 export function formatInstantDate(
   value: string | undefined | null,
   timeZone?: string,

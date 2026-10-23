@@ -84,6 +84,13 @@ export const TEMPLATE_LANGUAGES = [
 
 export type TemplateLanguageCode = (typeof TEMPLATE_LANGUAGES)[number]["code"];
 
+/**
+ * Languages whose Pokémon name list is not a copy of another language.
+ * Other template languages fall back to English.
+ * Keep in sync with TestUniqueNameLanguages.
+ */
+export const POKEMON_NAME_LANGUAGES = ["de", "en", "es", "fr", "it", "ja", "ko", "zh"] as const;
+
 const byCode = new Map(TEMPLATE_LANGUAGES.map((l) => [l.code, l.label]));
 
 const aliases: Record<string, TemplateLanguageCode> = {

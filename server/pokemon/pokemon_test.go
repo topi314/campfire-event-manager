@@ -1,6 +1,7 @@
 package pokemon
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -223,6 +224,45 @@ func TestResolveEventPokemonPinnedLanguage(t *testing.T) {
 	}
 	if _, ok := m["eventPokemonCeilingRaid:en"]; ok {
 		t.Fatalf("ceiling should not be language-pinned")
+	}
+}
+
+func TestUniqueNameLanguages(t *testing.T) {
+	cat, err := Catalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]struct{}{}
+	for i := range cat {
+		for code := range cat[i].Names {
+			seen[code] = struct{}{}
+		}
+	}
+	codes := make([]string, 0, len(seen))
+	for code := range seen {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+
+	groups := map[string][]string{}
+	for _, code := range codes {
+		parts := make([]string, len(cat))
+		for i := range cat {
+			parts[i] = cat[i].Names[code]
+		}
+		fp := strings.Join(parts, "\x1e")
+		groups[fp] = append(groups[fp], code)
+	}
+	var unique []string
+	for _, members := range groups {
+		if len(members) == 1 {
+			unique = append(unique, members[0])
+		}
+	}
+	sort.Strings(unique)
+	want := []string{"de", "en", "es", "fr", "it", "ja", "ko", "zh"}
+	if strings.Join(unique, ",") != strings.Join(want, ",") {
+		t.Fatalf("unique name languages = %v", unique)
 	}
 }
 

@@ -178,6 +178,28 @@ or a wrapped file:
 
 Use `{{key}}` or `{{key[1]}}` in title, description, address, or cover URL. Built-in keys (`club`, `liveEvent`, `category`, `title`, `address`, `lat`, `lng`, `date`, `dateShort`, `weekday`, `startTime`, `endTime`, `timezone`, plus event-Pokémon keys below) fill automatically when the meetup is **posted** to Campfire (and in Preview). Drafts keep the `{{…}}` tokens.
 
+`{{date}}`, `{{startTime}}`, and `{{endTime}}` accept a time-format id (the same ids as Settings): `{{date:dmy-dot-24}}`, `{{startTime:mdy-12}}`, `{{endTime:dmy-h}}`. `{{date:id}}` is the date half. `{{startTime:id}}` and `{{endTime:id}}` are the clock half, and they share a clock for a given id. Examples below are for 18 Oct 2026 at 15:45. Without an id, `{{date}}` is `Oct 18, 2026`, `{{dateShort}}` is `2026-10-18`, and `{{startTime}}` / `{{endTime}}` are `15:45`. An unknown id falls back to that default.
+
+| Id | `{{date:id}}` | `{{startTime:id}}` / `{{endTime:id}}` |
+| --- | --- | --- |
+| `mdy-12` | Oct 18, 2026 | 3:45 PM |
+| `mdy-slash-12` | 10/18/2026 | 3:45 PM |
+| `dmy-12` | 18 Oct 2026 | 3:45 pm |
+| `dmy-slash-12` | 18/10/2026 | 3:45 pm |
+| `dmy-24` | 18 Oct 2026 | 15:45 |
+| `dmy-dot-24` | 18.10.2026 | 15:45 |
+| `dmy-slash-24` | 18/10/2026 | 15:45 |
+| `dmy-dash-24` | 18-10-2026 | 15:45 |
+| `dmy-dot-time` | 18.10.2026 | 15.45 |
+| `dmy-h` | 18 Oct 2026 | 15 h 45 |
+| `ymd-24` | 2026-10-18 | 15:45 |
+| `ymd-slash-24` | 2026/10/18 | 15:45 |
+| `ymd-dot-24` | 2026.10.18 | 15:45 |
+| `hm-dmy` | 18 Oct 2026 | 15:45 |
+| `hm-dmy-slash` | 18/10/2026 | 15:45 |
+
+`hm-dmy` uses the same pieces as `dmy-24`, and `hm-dmy-slash` uses the same pieces as `dmy-slash-24`. Settings shows those two with the clock before the date when both appear together.
+
 **Event Pokémon** (category-gated extraction from the live event title; catalog + CP math on the server):
 
 - `{{eventPokemon}}` — species name(s) translated to the meetup language (defaults from the template; overridable on create); editable when used
@@ -188,6 +210,20 @@ Use `{{key}}` or `{{key[1]}}` in title, description, address, or cover URL. Buil
 - Super mega raid: `{{eventPokemonFloorSuperMegaRaid}}` / `{{eventPokemonFloorSuperMegaRaidWeather}}` — 11/11/11 at L20 / L25
 - Shadow raid: `{{eventPokemonFloorShadowRaid}}` / `{{eventPokemonFloorShadowRaidWeather}}` — 6/6/6 at L20 / L25
 - Indexes: `{{eventPokemon[1]}}`, `{{eventPokemonCeilingRaid[2]}}`, … (1-based). Unindexed = full comma-joined list.
+- Language pin (name only): `{{eventPokemon:de}}`, `{{eventPokemon[2]:fr}}`. Unscoped `{{eventPokemon}}` uses the meetup language. Any other code falls back to English. A regional code such as `zh-CN` uses `zh`.
+
+These codes each have a Pokémon name list of their own.
+
+| Code | Language |
+| --- | --- |
+| `de` | German |
+| `en` | English |
+| `es` | Spanish |
+| `fr` | French |
+| `it` | Italian |
+| `ja` | Japanese |
+| `ko` | Korean |
+| `zh` | Chinese |
 
 Any other key becomes a create-time field (**required** unless you set a default in `placeholders`). Prefer `startTime` / `endTime` (`HH:mm`) as template clock fields; legacy `eventTime` / `eventEndTime` still work (time-of-day only).
 

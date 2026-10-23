@@ -1,5 +1,21 @@
 <script setup lang="ts">
+import { layoutPieces } from "~/utils/datetime";
+import { POKEMON_NAME_LANGUAGES, templateLanguageLabel } from "~/utils/languages";
 import { BUILTIN_PLACEHOLDERS } from "~/utils/placeholders";
+import { TIME_FORMATS } from "~/utils/timeFormats";
+
+/** Reference instant used in the layout table: 18 Oct 2026, 15:45. */
+const layoutSample = { year: 2026, month: 10, day: 18, hours: 15, minutes: 45 };
+
+const timeLayouts = TIME_FORMATS.map((preset) => {
+  const pieces = layoutPieces(preset.id, layoutSample);
+  return { id: preset.id, date: pieces.date, time: pieces.time };
+});
+
+const pokemonNameLanguages = POKEMON_NAME_LANGUAGES.map((code) => ({
+  code,
+  label: templateLanguageLabel(code),
+}));
 
 withDefaults(
   defineProps<{
@@ -104,12 +120,38 @@ onBeforeUnmount(() => {
                 </div>
               </li>
             </ul>
+            <h3>Time layouts</h3>
             <p class="muted section-p">
               <code v-pre>{{date}}</code>, <code v-pre>{{startTime}}</code>, and
-              <code v-pre>{{endTime}}</code> can take a Settings time-format id:
-              <code v-pre>{{date:dmy-dot-24}}</code> (18.10.2026),
-              <code v-pre>{{startTime:mdy-12}}</code> (3:45 PM).
-              Unscoped tokens keep their default layout. Unknown ids fall back to that default.
+              <code v-pre>{{endTime}}</code> accept a time-format id after a colon, the same
+              ids as Settings. <code v-pre>{{date:id}}</code> is the date half.
+              <code v-pre>{{startTime:id}}</code> and <code v-pre>{{endTime:id}}</code> are the
+              clock half (same clock for a given id). Examples are for 18 Oct 2026 at 15:45.
+              Without an id, <code v-pre>{{date}}</code> is <code>Oct 18, 2026</code>,
+              <code v-pre>{{dateShort}}</code> is <code>2026-10-18</code>, and
+              <code v-pre>{{startTime}}</code> / <code v-pre>{{endTime}}</code> are
+              <code>15:45</code>. An unknown id falls back to that default.
+            </p>
+            <table class="help-table">
+              <thead>
+                <tr>
+                  <th scope="col">Id</th>
+                  <th scope="col"><code v-pre>{{date:id}}</code></th>
+                  <th scope="col"><code v-pre>{{startTime:id}}</code></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in timeLayouts" :key="row.id">
+                  <th scope="row"><code>{{ row.id }}</code></th>
+                  <td>{{ row.date }}</td>
+                  <td>{{ row.time }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="muted section-p">
+              <code>hm-dmy</code> uses the same pieces as <code>dmy-24</code>, and
+              <code>hm-dmy-slash</code> uses the same pieces as <code>dmy-slash-24</code>.
+              Settings shows those two with the clock before the date when both appear together.
             </p>
 
             <h3>Event Pokémon</h3>
@@ -139,11 +181,30 @@ onBeforeUnmount(() => {
               Indexes: <code v-pre>{{eventPokemon[1]}}</code>,
               <code v-pre>{{eventPokemonCeilingRaid[2]}}</code> — first/second species only.
               Unindexed forms are the full comma-joined list. Out of range → empty.
-              Pin a language with <code v-pre>{{eventPokemon:en}}</code> or
-              <code v-pre>{{eventPokemon[2]:de}}</code>. Unscoped
+              Pin a name with <code v-pre>{{eventPokemon:de}}</code> or
+              <code v-pre>{{eventPokemon[2]:fr}}</code>. Unscoped
               <code v-pre>{{eventPokemon}}</code> stays on the meetup language.
-              Unknown codes fall back to English. Ceiling/Floor keys are not translated.
+              Ceiling and floor keys stay numbers.
             </p>
+            <p class="muted section-p">
+              These codes each have a Pokémon name list of their own. Any other code
+              falls back to English. A regional code such as <code>zh-CN</code> uses
+              <code>zh</code>.
+            </p>
+            <table class="help-table">
+              <thead>
+                <tr>
+                  <th scope="col">Code</th>
+                  <th scope="col">Language</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="lang in pokemonNameLanguages" :key="lang.code">
+                  <th scope="row"><code>{{ lang.code }}</code></th>
+                  <td>{{ lang.label }}</td>
+                </tr>
+              </tbody>
+            </table>
 
             <h3>Custom placeholders</h3>
             <p class="muted section-p">
@@ -202,7 +263,7 @@ onBeforeUnmount(() => {
   text-decoration: none;
 }
 .modal-placeholders {
-  width: min(640px, 100%);
+  width: min(720px, 100%);
   max-height: min(85vh, 780px);
   display: flex;
   flex-direction: column;
@@ -290,6 +351,27 @@ onBeforeUnmount(() => {
 }
 .example {
   font-size: 0.8rem;
+}
+.help-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 0.55rem;
+  font-size: 0.8rem;
+}
+.help-table th,
+.help-table td {
+  text-align: left;
+  padding: 0.28rem 0.45rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: baseline;
+  font-weight: 400;
+}
+.help-table thead th {
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+.help-table code {
+  font-size: 0.85em;
 }
 .modal-actions {
   margin-top: 1rem;

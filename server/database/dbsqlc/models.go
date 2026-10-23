@@ -27,3 +27,14 @@ type DiscordUser struct {
 	DiscordUserLanguage    pgtype.Text
 	DiscordUserTimeFormat  pgtype.Text
 }
+
+type IconLibrary struct {
+	LibraryID            int64
+	LibraryDiscordUserID string
+	LibraryName          string
+	LibraryIsDefault     bool
+	LibraryPublishedAt   pgtype.Timestamp
+	LibraryCreatedAt     pgtype.Timestamp
+	LibraryUpdatedAt     pgtype.Timestamp
+	LibraryDescription   string
+}

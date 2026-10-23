@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/topi314/campfire-event-manager/server/campfire"
 )
 
+var errIconForbidden = errors.New("icon not available")
+
 func (s *Server) requireCampfireToken(r *http.Request) (string, bool) {
 	token := campfire.BearerFromRequest(r)
 	return token, token != ""
@@ -17,8 +20,22 @@ func (s *Server) requireCampfireToken(r *http.Request) (string, bool) {
 
 // resolveCoverAvatar returns cover bytes for avatarFile on create/edit.
 // Local covers (/api/covers/{id}) are loaded from our DB; https URLs are fetched.
-func (s *Server) resolveCoverAvatar(ctx context.Context, coverURL string) (*campfire.AvatarUpload, error) {
+func (s *Server) resolveCoverAvatar(ctx context.Context, viewerID, coverURL string) (*campfire.AvatarUpload, error) {
 	coverURL = strings.TrimSpace(coverURL)
+	if id, ok := parseIconID(coverURL); ok {
+		img, err := s.db.GetIcon(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if !iconVisible(img.LibraryDiscordUserID, img.LibraryPublishedAt, viewerID) {
+			return nil, errIconForbidden
+		}
+		data, err := s.readIconBytes(img.IconStoragePath)
+		if err != nil {
+			return nil, err
+		}
+		return &campfire.AvatarUpload{Data: data}, nil
+	}
 	if id, ok := parseCoverImageID(coverURL); ok {
 		img, err := s.db.GetCoverImage(ctx, id)
 		if err != nil {
@@ -293,7 +310,7 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 	var avatar *campfire.AvatarUpload
 	if cover != "" {
 		var err error
-		avatar, err = s.resolveCoverAvatar(r.Context(), cover)
+		avatar, err = s.resolveCoverAvatar(r.Context(), viewerID(r), cover)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, "failed to load cover image: "+err.Error())
 			return
@@ -427,7 +444,7 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 	photoChanged := body.HasEventPhotoChanged != nil && *body.HasEventPhotoChanged
 	if photoChanged && cover != "" {
 		var err error
-		avatar, err = s.resolveCoverAvatar(r.Context(), cover)
+		avatar, err = s.resolveCoverAvatar(r.Context(), viewerID(r), cover)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, "failed to load cover image: "+err.Error())
 			return

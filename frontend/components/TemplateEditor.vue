@@ -34,6 +34,26 @@ import {
 
 const { options: TEMPLATE_CATEGORY_OPTIONS, isOption: isTemplateCategoryOption } =
   useEventCategories();
+const { api } = useApi();
+
+type IconLibraryOption = {
+  id: number;
+  name: string;
+  mine: boolean;
+  saved?: boolean;
+  isDefault: boolean;
+  published: boolean;
+};
+const iconLibraries = ref<IconLibraryOption[]>([]);
+
+onMounted(async () => {
+  try {
+    const res = await api<{ libraries: IconLibraryOption[] }>("/api/icon-libraries");
+    iconLibraries.value = (res.libraries || []).filter((lib) => lib.mine || lib.saved);
+  } catch {
+    iconLibraries.value = [];
+  }
+});
 
 const props = withDefaults(
   defineProps<{
@@ -204,6 +224,7 @@ const form = reactive({
   category: "",
   address: "",
   coverPhotoUrl: "",
+  iconLibraryId: "",
   commentsPermissions: "ORGANIZERS_ONLY",
   discordChannelId: "",
   startTime: "",
@@ -316,6 +337,7 @@ function loadFromProps() {
     categoryCustomMode.value = false;
     form.address = "";
     form.coverPhotoUrl = "";
+    form.iconLibraryId = "";
     form.commentsPermissions = "ORGANIZERS_ONLY";
     form.discordChannelId = "";
     form.startTime = "";
@@ -339,6 +361,7 @@ function loadFromProps() {
   categoryCustomMode.value = !!cat && !isTemplateCategoryOption(cat);
   form.address = p.address || "";
   form.coverPhotoUrl = p.coverPhotoUrl || "";
+  form.iconLibraryId = p.iconLibraryId ? String(p.iconLibraryId) : "";
   form.commentsPermissions = p.commentsPermissions || "ORGANIZERS_ONLY";
   form.discordChannelId = (p.discordChannelId || "").trim();
   selectedDiscordClubId.value = pickDefaultDiscordClubId(clubs.value, p.discordClubId);
@@ -415,6 +438,7 @@ function buildPayload(): MeetupPayload {
     locationJitterMeters: form.locationJitterMeters,
     address: form.address || undefined,
     coverPhotoUrl: form.coverPhotoUrl || undefined,
+    ...(form.iconLibraryId ? { iconLibraryId: Number(form.iconLibraryId) } : {}),
     commentsPermissions: form.commentsPermissions,
     ...(form.discordChannelId.trim()
       ? { discordChannelId: form.discordChannelId.trim() }
@@ -764,6 +788,17 @@ function onSubmit() {
             v-model="form.coverPhotoUrl"
             @update:model-value="markField('coverPhotoUrl')"
           />
+          <label for="icon-library">Icon pack</label>
+          <select id="icon-library" v-model="form.iconLibraryId">
+            <option value="">None</option>
+            <option v-for="lib in iconLibraries" :key="lib.id" :value="String(lib.id)">
+              {{ lib.name }}{{ lib.mine ? "" : " (added)" }}
+            </option>
+          </select>
+          <p class="hint muted">
+            Matching icons from this pack are suggested when creating or editing a meetup,
+            as long as the pack is in My packs. The cover photo is used when nothing matches.
+          </p>
         </div>
         <div class="field" style="margin-bottom: 0">
           <div class="field-label-row">

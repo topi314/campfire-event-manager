@@ -33,20 +33,23 @@ type ClubEvent struct {
 	} `json:"creator"`
 }
 
+type eventFeedPage struct {
+	Edges []struct {
+		Node   json.RawMessage `json:"node"`
+		Cursor string          `json:"cursor"`
+	} `json:"edges"`
+	PageInfo struct {
+		HasNextPage bool   `json:"hasNextPage"`
+		EndCursor   string `json:"endCursor"`
+	} `json:"pageInfo"`
+}
+
 type activeEventsResp struct {
 	Club struct {
-		ID         string `json:"id"`
-		Name       string `json:"name"`
-		ActiveFeed struct {
-			Edges []struct {
-				Node   json.RawMessage `json:"node"`
-				Cursor string          `json:"cursor"`
-			} `json:"edges"`
-			PageInfo struct {
-				HasNextPage bool   `json:"hasNextPage"`
-				EndCursor   string `json:"endCursor"`
-			} `json:"pageInfo"`
-		} `json:"activeFeed"`
+		ID           string        `json:"id"`
+		Name         string        `json:"name"`
+		ActiveFeed   eventFeedPage `json:"activeFeed"`
+		ArchivedFeed eventFeedPage `json:"archivedFeed"`
 	} `json:"club"`
 }
 
@@ -64,10 +67,12 @@ type ActiveEventsResult struct {
 	HasNextPage bool
 }
 
-// ActiveEvents returns upcoming/ongoing meetups for a club (one page).
-// When lite is true, skips heavy fields (details, location, permissions) for list UIs.
+// ActiveEvents returns one page of club meetups.
+// archived selects the past feed (archivedFeed); otherwise the upcoming/ongoing feed.
+// When lite is true, skips heavy fields (details, permissions) for list UIs.
+// The past feed is always the lite query. Location stays so the events list can show a map pin.
 // Discord channels are loaded separately via DiscordSettings.
-func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first int, after string, lite bool) (ActiveEventsResult, error) {
+func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first int, after string, lite bool, archived bool) (ActiveEventsResult, error) {
 	out := ActiveEventsResult{
 		Events: []ClubEvent{},
 	}
@@ -75,7 +80,9 @@ func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first i
 		first = 50
 	}
 	query := queryActiveEvents
-	if lite {
+	if archived {
+		query = queryArchivedEventsLite
+	} else if lite {
 		query = queryActiveEventsLite
 	}
 	var resp activeEventsResp
@@ -86,10 +93,14 @@ func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first i
 	}, &resp); err != nil {
 		return out, err
 	}
+	feed := resp.Club.ActiveFeed
+	if archived {
+		feed = resp.Club.ArchivedFeed
+	}
 	out.ClubID = resp.Club.ID
 	out.ClubName = strings.TrimSpace(resp.Club.Name)
-	out.Events = make([]ClubEvent, 0, len(resp.Club.ActiveFeed.Edges))
-	for _, e := range resp.Club.ActiveFeed.Edges {
+	out.Events = make([]ClubEvent, 0, len(feed.Edges))
+	for _, e := range feed.Edges {
 		var node activeFeedNode
 		if err := json.Unmarshal(e.Node, &node); err != nil {
 			continue
@@ -110,31 +121,43 @@ func (c *Client) ActiveEvents(ctx context.Context, token, clubID string, first i
 		ev.EventEndTime = meetuptime.NormalizeCampfireInstantRFC3339(ev.EventEndTime)
 		out.Events = append(out.Events, ev)
 	}
-	out.EndCursor = resp.Club.ActiveFeed.PageInfo.EndCursor
-	out.HasNextPage = resp.Club.ActiveFeed.PageInfo.HasNextPage
+	out.EndCursor = feed.PageInfo.EndCursor
+	out.HasNextPage = feed.PageInfo.HasNextPage
 	return out, nil
+}
+
+// NullableLiveEventID is a Campfire live-event id on editEvent.
+// An empty value marshals as null so an existing link can be cleared.
+type NullableLiveEventID string
+
+func (id NullableLiveEventID) MarshalJSON() ([]byte, error) {
+	if strings.TrimSpace(string(id)) == "" {
+		return []byte("null"), nil
+	}
+	return json.Marshal(string(id))
 }
 
 // EditEventInput is the GraphQL input for editEvent (from Campfire client).
 // Several fields must be present even when empty (coverPhotoUrl, details, address, userIds);
 // do not mark those with omitempty.
 type EditEventInput struct {
-	EventID                      string   `json:"eventId"`
-	Name                         string   `json:"name"`
-	Details                      string   `json:"details"`
-	EventTime                    string   `json:"eventTime,omitempty"`
-	EventEndTime                 string   `json:"eventEndTime,omitempty"`
-	Location                     string   `json:"location,omitempty"` // "[lng, lat]"
-	Address                      string   `json:"address"`
-	PlaceID                      string   `json:"placeId,omitempty"`
-	CoverPhotoURL                string   `json:"coverPhotoUrl"`
-	CommentsPermissions          string   `json:"commentsPermissions,omitempty"`
-	AllInvited                   *bool    `json:"allInvited,omitempty"`
-	UserIDs                      []string `json:"userIds"`
-	CampfireLiveEventID          string   `json:"campfireLiveEventId,omitempty"`
-	HasEventPhotoChanged         *bool    `json:"hasEventPhotoChanged,omitempty"`
-	CreatedByCommunityAmbassador *bool    `json:"createdByCommunityAmbassador,omitempty"`
-	DiscordChannelID             string   `json:"discordChannelId,omitempty"`
+	EventID             string   `json:"eventId"`
+	Name                string   `json:"name"`
+	Details             string   `json:"details"`
+	EventTime           string   `json:"eventTime,omitempty"`
+	EventEndTime        string   `json:"eventEndTime,omitempty"`
+	Location            string   `json:"location,omitempty"` // "[lng, lat]"
+	Address             string   `json:"address"`
+	PlaceID             string   `json:"placeId,omitempty"`
+	CoverPhotoURL       string   `json:"coverPhotoUrl"`
+	CommentsPermissions string   `json:"commentsPermissions,omitempty"`
+	AllInvited          *bool    `json:"allInvited,omitempty"`
+	UserIDs             []string `json:"userIds"`
+	// Nil omits the field. A non-nil empty id is sent as null so the link can be removed.
+	CampfireLiveEventID          *NullableLiveEventID `json:"campfireLiveEventId,omitempty"`
+	HasEventPhotoChanged         *bool                `json:"hasEventPhotoChanged,omitempty"`
+	CreatedByCommunityAmbassador *bool                `json:"createdByCommunityAmbassador,omitempty"`
+	DiscordChannelID             string               `json:"discordChannelId,omitempty"`
 	// Avatar is uploaded with the edit as input.avatarFile. Campfire ignores
 	// coverPhotoUrl unless this file is attached and hasEventPhotoChanged is set.
 	Avatar *AvatarUpload `json:"-"`

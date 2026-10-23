@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import caStarUrl from "~/assets/images/ca-star.png";
-
 const { user, loaded, refresh } = useAuth();
 const {
   token,
@@ -10,7 +8,6 @@ const {
   closeSettings,
 } = useSessionToken();
 const {
-  isCA,
   tokenError,
   validateToken,
   clearCampfireProfile,
@@ -53,6 +50,9 @@ watch(token, async (t, prev) => {
         <nav class="primary-nav" aria-label="Main">
           <div class="nav-group">
             <NuxtLink to="/create">Create</NuxtLink>
+            <NuxtLink to="/edit">Edit</NuxtLink>
+          </div>
+          <div class="nav-group">
             <NuxtLink to="/create/drafts">Drafts</NuxtLink>
             <NuxtLink to="/events">Events</NuxtLink>
           </div>
@@ -81,24 +81,13 @@ watch(token, async (t, prev) => {
           v-if="user"
           :to="`/profiles/${user.id}`"
           class="user-chip"
-          :title="
-            isCA
-              ? `${user.displayName || user.username} · Community Ambassador`
-              : user.displayName || user.username
-          "
+          :title="user.displayName || user.username"
         >
           <span class="user-avatar">
             <img v-if="user.avatarUrl" :src="user.avatarUrl" alt="" />
             <span v-else class="user-avatar-fallback" aria-hidden="true">
               {{ (user.displayName || user.username || "?").slice(0, 1).toUpperCase() }}
             </span>
-            <img
-              v-if="isCA"
-              class="ca-star"
-              :src="caStarUrl"
-              alt=""
-              title="Community Ambassador"
-            />
           </span>
           <span class="user-chip-name">{{ user.displayName || user.username }}</span>
         </NuxtLink>

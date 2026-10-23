@@ -16,7 +16,7 @@ Create Pokémon GO / Campfire meetups from reusable templates. Discord login gat
 3. Build meetup templates on the **Templates** page (title, placeholders, clock times, location, invites)
 4. **Publish** templates so others can find them under **Browse templates** (`/templates/browse`); add or customize a clone (always linked to the original); open publishers on **Profiles**
 5. Create a meetup at **`/create`**: pick template → optionally pick live event → fill placeholders → create (or save a **club draft** as a club admin and post later from **`/create/drafts`** — shared with other admins of that club). Edit a draft at **`/create/drafts/:id`**.
-6. Edit an existing meetup on **`/create`**: pick club → pick upcoming meetup → tweak details → save
+6. Edit an existing meetup on **`/edit`**: pick club → pick upcoming meetup → tweak details → save. The events pencil opens **`/edit?clubId=&eventId=`** for that meetup.
 7. Manage templates at **`/templates`**, create at **`/templates/new`**, edit at **`/templates/:id/edit`**, browse at **`/templates/browse`** (open a listing at **`/templates/browse/:id`**)
 
 When a live event is selected it supplies the **calendar day** and `campfireLiveEventId`; start/end **hours** come from the template. Without a live event, set the date and time yourself (template clocks use today).
@@ -137,7 +137,7 @@ Times: template `startTime` / `endTime` (HH:mm) are combined with the live event
 
 ### Edit existing
 
-Switch to **Edit existing** on **`/create`**:
+Open **`/edit`**:
 
 1. **Club** — same list as create
 2. **Meetup** — upcoming/ongoing meetups from the club’s active feed

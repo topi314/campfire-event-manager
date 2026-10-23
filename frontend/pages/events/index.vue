@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { Club, ClubEvent } from "~/types";
+import caStarUrl from "~/assets/images/ca-star.png";
 import { isCampfireTokenError } from "~/composables/useSessionToken";
 import { coverImageSrc } from "~/utils/covers";
 import { formatInstant } from "~/utils/datetime";
+import { parseCampfireLocation } from "~/utils/location";
 
 const { user, loaded, ensureAuth } = useAuth();
 const { api } = useApi();
@@ -10,6 +12,17 @@ const { token, authHeaders, openSettings, invalidateToken } = useSessionToken();
 const { timeZone, timeFormat, preferredClubId } = usePreferences();
 const toast = useToast();
 const { apiBase } = useRuntimeConfig().public;
+const route = useRoute();
+const router = useRouter();
+
+type EventTab = "upcoming" | "past";
+
+function tabFromQuery(tab: unknown): EventTab {
+  return tab === "past" ? "past" : "upcoming";
+}
+
+const eventTab = ref<EventTab>(tabFromQuery(route.query.tab));
+const eventsPageSize = 15;
 
 const clubs = ref<Club[]>([]);
 const clubsLoaded = ref(false);
@@ -24,14 +37,23 @@ const loadingEvents = ref(false);
 const loadingMore = ref(false);
 const busy = ref(false);
 const sharingId = ref<string | null>(null);
+const sharingBulk = ref(false);
+const progress = ref("");
+const selectedIds = ref<Set<string>>(new Set());
 const confirmDeleteId = ref<string | null>(null);
+const confirmBulk = ref(false);
 const detailEventId = ref<string | null>(null);
 /** Ignore watchers until first bootstrap finishes. */
 const ready = ref(false);
 
 let clubsInflight: Promise<void> | null = null;
 let eventsInflight: Promise<void> | null = null;
-let eventsInflightClubId = "";
+let eventsInflightKey = "";
+let eventsGeneration = 0;
+
+function eventsRequestKey(tab: EventTab, clubId: string) {
+  return `${tab}:${clubId}`;
+}
 
 function onDetailKeydown(e: KeyboardEvent) {
   if (e.key === "Escape" && detailEventId.value && !busy.value) closeDetail();
@@ -47,7 +69,10 @@ onMounted(async () => {
   ready.value = true;
 });
 
-onUnmounted(() => window.removeEventListener("keydown", onDetailKeydown));
+onUnmounted(() => {
+  window.removeEventListener("keydown", onDetailKeydown);
+  loadMoreObserver?.disconnect();
+});
 
 watch(token, async (t) => {
   if (!ready.value) return;
@@ -57,6 +82,7 @@ watch(token, async (t) => {
     events.value = [];
     clubNameFromEvents.value = "";
     selectedClubId.value = "";
+    selectedIds.value = new Set();
     detailEventId.value = null;
     return;
   }
@@ -67,9 +93,38 @@ watch(token, async (t) => {
 watch(selectedClubId, (id, prev) => {
   if (!ready.value) return;
   detailEventId.value = null;
+  selectedIds.value = new Set();
+  confirmDeleteId.value = null;
+  confirmBulk.value = false;
   if (!id || id === prev) return;
   void loadEvents(id, { reset: true });
 });
+
+watch(eventTab, (tab, prev) => {
+  if (!ready.value || tab === prev) return;
+  detailEventId.value = null;
+  selectedIds.value = new Set();
+  confirmDeleteId.value = null;
+  confirmBulk.value = false;
+  if (selectedClubId.value) void loadEvents(selectedClubId.value, { reset: true });
+});
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    const next = tabFromQuery(tab);
+    if (next !== eventTab.value) eventTab.value = next;
+  },
+);
+
+function setEventTab(tab: EventTab) {
+  if (eventTab.value === tab) return;
+  const query = { ...route.query };
+  if (tab === "past") query.tab = "past";
+  else delete query.tab;
+  eventTab.value = tab;
+  void router.replace({ path: "/events", query });
+}
 
 watch(preferredClubId, (preferred) => {
   if (!ready.value) return;
@@ -143,9 +198,19 @@ function mapEvents(list: ClubEvent[], clubId: string): ClubEvent[] {
   }));
 }
 
-async function fetchEventsPage(clubId: string, after = ""): Promise<EventsPage> {
-  const qs = new URLSearchParams({ first: "50", lite: "1" });
+function sortEvents(list: ClubEvent[], tab: EventTab): ClubEvent[] {
+  const dir = tab === "past" ? -1 : 1;
+  return [...list].sort((a, b) => {
+    const ta = Date.parse(a.eventTime) || 0;
+    const tb = Date.parse(b.eventTime) || 0;
+    return (ta - tb) * dir;
+  });
+}
+
+async function fetchEventsPage(clubId: string, tab: EventTab, after = ""): Promise<EventsPage> {
+  const qs = new URLSearchParams({ first: String(eventsPageSize), lite: "1" });
   if (after) qs.set("after", after);
+  if (tab === "past") qs.set("feed", "past");
   return api<EventsPage>(
     `/api/campfire/clubs/${encodeURIComponent(clubId)}/events?${qs}`,
     { headers: authHeaders() },
@@ -153,6 +218,7 @@ async function fetchEventsPage(clubId: string, after = ""): Promise<EventsPage> 
 }
 
 async function loadEvents(clubId: string, opts?: { reset?: boolean }) {
+  const tab = eventTab.value;
   if (!token.value || !clubId) {
     events.value = [];
     clubNameFromEvents.value = "";
@@ -160,41 +226,48 @@ async function loadEvents(clubId: string, opts?: { reset?: boolean }) {
     eventsHasMore.value = false;
     return;
   }
-  if (eventsInflight && eventsInflightClubId === clubId && opts?.reset) {
+  const key = eventsRequestKey(tab, clubId);
+  if (eventsInflight && eventsInflightKey === key && opts?.reset) {
     return eventsInflight;
   }
 
+  const generation = ++eventsGeneration;
   loadingEvents.value = true;
   error.value = "";
-  eventsInflightClubId = clubId;
+  if (opts?.reset) {
+    events.value = [];
+    eventsCursor.value = "";
+    eventsHasMore.value = false;
+  }
+  eventsInflightKey = key;
   eventsInflight = (async () => {
     try {
-      const res = await fetchEventsPage(clubId);
-      if (selectedClubId.value !== clubId) return;
+      const res = await fetchEventsPage(clubId, tab);
+      if (generation !== eventsGeneration) return;
+      if (selectedClubId.value !== clubId || eventTab.value !== tab) return;
       clubNameFromEvents.value = (res.clubName || "").trim();
-      events.value = mapEvents(res.events || [], clubId).sort((a, b) => {
-        const ta = Date.parse(a.eventTime) || 0;
-        const tb = Date.parse(b.eventTime) || 0;
-        return ta - tb;
-      });
+      events.value = sortEvents(mapEvents(res.events || [], clubId), tab);
       eventsCursor.value = res.hasNextPage ? res.endCursor || "" : "";
       eventsHasMore.value = !!res.hasNextPage && !!res.endCursor;
+      pruneSelection();
     } catch (e: any) {
-      if (selectedClubId.value !== clubId) return;
+      if (generation !== eventsGeneration) return;
+      if (selectedClubId.value !== clubId || eventTab.value !== tab) return;
       events.value = [];
       clubNameFromEvents.value = "";
       eventsCursor.value = "";
       eventsHasMore.value = false;
+      selectedIds.value = new Set();
       error.value = e.message || "Failed to load events";
       if (isCampfireTokenError(e)) {
         invalidateToken();
         openSettings({ focusToken: true });
       }
     } finally {
-      if (eventsInflightClubId === clubId) {
+      if (eventsInflightKey === key) {
         loadingEvents.value = false;
         eventsInflight = null;
-        eventsInflightClubId = "";
+        eventsInflightKey = "";
       }
     }
   })();
@@ -203,36 +276,51 @@ async function loadEvents(clubId: string, opts?: { reset?: boolean }) {
 
 async function loadMoreEvents() {
   const clubId = selectedClubId.value;
+  const tab = eventTab.value;
   const after = eventsCursor.value;
+  const generation = eventsGeneration;
   if (!token.value || !clubId || !after || loadingMore.value || loadingEvents.value) return;
 
   loadingMore.value = true;
   error.value = "";
   try {
-    const res = await fetchEventsPage(clubId, after);
-    if (selectedClubId.value !== clubId) return;
+    const res = await fetchEventsPage(clubId, tab, after);
+    if (generation !== eventsGeneration) return;
+    if (selectedClubId.value !== clubId || eventTab.value !== tab) return;
     if (res.clubName) clubNameFromEvents.value = res.clubName.trim();
-    const more = mapEvents(res.events || [], clubId);
     const seen = new Set(events.value.map((e) => e.id));
-    const merged = [...events.value];
-    for (const ev of more) {
-      if (!seen.has(ev.id)) merged.push(ev);
-    }
-    events.value = merged.sort((a, b) => {
-      const ta = Date.parse(a.eventTime) || 0;
-      const tb = Date.parse(b.eventTime) || 0;
-      return ta - tb;
-    });
+    const more = sortEvents(mapEvents(res.events || [], clubId), tab).filter((ev) => !seen.has(ev.id));
+    events.value = [...events.value, ...more];
     eventsCursor.value = res.hasNextPage ? res.endCursor || "" : "";
     eventsHasMore.value = !!res.hasNextPage && !!res.endCursor;
+    pruneSelection();
   } catch (e: any) {
-    if (selectedClubId.value !== clubId) return;
+    if (generation !== eventsGeneration) return;
+    if (selectedClubId.value !== clubId || eventTab.value !== tab) return;
     error.value = e.message || "Failed to load more events";
     if (isCampfireTokenError(e)) invalidateToken();
   } finally {
     loadingMore.value = false;
   }
 }
+
+const loadMoreSentinel = ref<HTMLElement | null>(null);
+let loadMoreObserver: IntersectionObserver | null = null;
+
+function attachLoadMoreObserver() {
+  loadMoreObserver?.disconnect();
+  loadMoreObserver = null;
+  const el = loadMoreSentinel.value;
+  if (!el) return;
+  loadMoreObserver = new IntersectionObserver((entries) => {
+    const entry = entries[0];
+    if (!entry?.isIntersecting) return;
+    void loadMoreEvents();
+  });
+  loadMoreObserver.observe(el);
+}
+
+watch(loadMoreSentinel, () => attachLoadMoreObserver());
 
 const selectedClub = computed(
   () => clubs.value.find((c) => c.id === selectedClubId.value) || null,
@@ -270,6 +358,8 @@ const eventRows = computed(() => {
       when,
       end,
       ongoing,
+      hasLocation: parseCampfireLocation(ev.location) != null,
+      hasLiveEvent: !!(ev.campfireLiveEventId || "").trim(),
       address: (ev.address || "").trim(),
       details: (ev.details || "").trim(),
       creator,
@@ -289,6 +379,19 @@ const confirmDeleteEvent = computed(
   () => events.value.find((e) => e.id === confirmDeleteId.value) || null,
 );
 
+function eventAriaLabel(row: {
+  name: string;
+  ongoing: boolean;
+  hasLocation: boolean;
+  hasLiveEvent: boolean;
+}) {
+  const parts = [`Open ${row.name}`];
+  if (row.ongoing) parts.push("ongoing");
+  if (row.hasLocation) parts.push("has a map location");
+  if (row.hasLiveEvent) parts.push("associated with a live event");
+  return parts.join(", ");
+}
+
 function openDetail(ev: ClubEvent) {
   detailEventId.value = ev.id;
 }
@@ -299,25 +402,76 @@ function closeDetail() {
 
 function editEvent(ev: ClubEvent) {
   navigateTo({
-    path: "/create",
+    path: "/edit",
     query: {
-      mode: "edit",
       clubId: ev.clubId || selectedClubId.value,
       eventId: ev.id,
     },
   });
 }
 
+function pruneSelection() {
+  const valid = new Set(events.value.map((ev) => ev.id));
+  const next = new Set<string>();
+  for (const id of selectedIds.value) {
+    if (valid.has(id)) next.add(id);
+  }
+  selectedIds.value = next;
+}
+
+function isSelected(id: string) {
+  return selectedIds.value.has(id);
+}
+
+function toggleSelected(id: string, on?: boolean) {
+  const next = new Set(selectedIds.value);
+  const enable = on ?? !next.has(id);
+  if (enable) next.add(id);
+  else next.delete(id);
+  selectedIds.value = next;
+}
+
+const selectedCount = computed(() => selectedIds.value.size);
+
+const allSelected = computed(
+  () => events.value.length > 0 && events.value.every((ev) => selectedIds.value.has(ev.id)),
+);
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedIds.value = new Set();
+    return;
+  }
+  selectedIds.value = new Set(events.value.map((ev) => ev.id));
+}
+
+function selectedEventsInOrder(): ClubEvent[] {
+  const ids = selectedIds.value;
+  return events.value.filter((ev) => ids.has(ev.id));
+}
+
 function askDelete(id: string) {
+  confirmBulk.value = false;
   confirmDeleteId.value = id;
 }
 
-function closeConfirm() {
+function askDeleteSelected() {
+  if (!selectedCount.value) {
+    error.value = "Select at least one meetup to delete";
+    return;
+  }
   confirmDeleteId.value = null;
+  confirmBulk.value = true;
+}
+
+function closeConfirm() {
+  if (busy.value) return;
+  confirmDeleteId.value = null;
+  confirmBulk.value = false;
 }
 
 async function shareEvent(ev: ClubEvent) {
-  if (!token.value || sharingId.value) return;
+  if (!token.value || sharingId.value || sharingBulk.value) return;
   sharingId.value = ev.id;
   error.value = "";
   try {
@@ -337,8 +491,112 @@ async function shareEvent(ev: ClubEvent) {
   }
 }
 
+async function fetchShareUrl(id: string): Promise<string> {
+  const res = await api<{ url: string; shortId: string }>(
+    `/api/campfire/meetups/${encodeURIComponent(id)}/share-link`,
+    { method: "POST", headers: authHeaders() },
+  );
+  const url = (res.url || "").trim();
+  if (!url) throw new Error("No share link returned");
+  return url;
+}
+
+async function shareSelected() {
+  const list = selectedEventsInOrder();
+  if (!token.value || !list.length || sharingBulk.value || busy.value) return;
+  sharingBulk.value = true;
+  error.value = "";
+  progress.value = "";
+  const lines: string[] = [];
+  const failed: string[] = [];
+  try {
+    for (let i = 0; i < list.length; i++) {
+      const ev = list[i];
+      const name = (ev.name || "").trim() || "Untitled meetup";
+      progress.value = `Copying share links… ${i + 1}/${list.length}`;
+      try {
+        const url = await fetchShareUrl(ev.id);
+        lines.push(`${name}: ${url}`);
+      } catch (e: any) {
+        failed.push(name);
+        if (isCampfireTokenError(e)) {
+          invalidateToken();
+          break;
+        }
+      }
+    }
+    if (lines.length) {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      toast.success(
+        lines.length === 1 ? "Share link copied" : `${lines.length} share links copied`,
+      );
+    }
+    if (failed.length) {
+      error.value = lines.length
+        ? `Copied ${lines.length}. Failed: ${failed.join(", ")}`
+        : "Failed to copy share links";
+    }
+  } catch (e: any) {
+    error.value = e.message || "Failed to copy share links";
+  } finally {
+    progress.value = "";
+    sharingBulk.value = false;
+  }
+}
+
+async function deleteSelected() {
+  const list = selectedEventsInOrder();
+  if (!token.value || !list.length) return;
+  busy.value = true;
+  error.value = "";
+  const failed: string[] = [];
+  let deleted = 0;
+  try {
+    for (let i = 0; i < list.length; i++) {
+      const ev = list[i];
+      const name = (ev.name || "").trim() || "Untitled meetup";
+      progress.value = `Deleting meetups… ${i + 1}/${list.length}`;
+      try {
+        await api(`/api/campfire/meetups/${encodeURIComponent(ev.id)}`, {
+          method: "DELETE",
+          headers: authHeaders(),
+        });
+        events.value = events.value.filter((e) => e.id !== ev.id);
+        const next = new Set(selectedIds.value);
+        next.delete(ev.id);
+        selectedIds.value = next;
+        if (detailEventId.value === ev.id) detailEventId.value = null;
+        deleted++;
+      } catch (e: any) {
+        failed.push(name);
+        if (isCampfireTokenError(e)) {
+          invalidateToken();
+          break;
+        }
+      }
+    }
+    if (deleted) {
+      toast.success(deleted === 1 ? "Meetup deleted" : `${deleted} meetups deleted`);
+    }
+    if (failed.length) {
+      error.value = `Failed to delete: ${failed.join(", ")}`;
+    }
+  } finally {
+    progress.value = "";
+    busy.value = false;
+  }
+}
+
 async function onConfirmDelete() {
+  const bulk = confirmBulk.value;
   const id = confirmDeleteId.value;
+  const name = confirmDeleteEvent.value?.name || "Meetup";
+  confirmBulk.value = false;
+  confirmDeleteId.value = null;
+  if (bulk) {
+    await deleteSelected();
+    return;
+  }
   if (!id || !token.value) return;
   busy.value = true;
   error.value = "";
@@ -347,11 +605,12 @@ async function onConfirmDelete() {
       method: "DELETE",
       headers: authHeaders(),
     });
-    const name = confirmDeleteEvent.value?.name || "Meetup";
     toast.success("Meetup deleted", name);
     events.value = events.value.filter((e) => e.id !== id);
+    const next = new Set(selectedIds.value);
+    next.delete(id);
+    selectedIds.value = next;
     if (detailEventId.value === id) detailEventId.value = null;
-    closeConfirm();
   } catch (e: any) {
     error.value = e.message || "Failed to delete meetup";
     if (isCampfireTokenError(e)) invalidateToken();
@@ -366,19 +625,68 @@ async function onConfirmDelete() {
     <div v-if="loaded && user" class="panel">
       <div class="page-head">
         <div>
-          <h2>Upcoming events{{ eventRows.length ? ` (${eventRows.length})` : "" }}</h2>
-          <p class="muted">Upcoming and ongoing meetups for clubs you admin.</p>
+          <h2>Events{{ eventRows.length ? ` (${eventRows.length})` : "" }}</h2>
+          <p class="muted">
+            {{
+              eventTab === "past"
+                ? "Past meetups for clubs you admin."
+                : "Upcoming and ongoing meetups for clubs you admin."
+            }}
+          </p>
         </div>
-        <div class="page-actions">
-          <NuxtLink to="/create" class="btn primary create-action">
-            <Icon name="plus" />
-            Create
-          </NuxtLink>
+        <div class="page-head-end">
+          <div class="page-actions">
+            <button
+              type="button"
+              :disabled="busy || sharingBulk || !selectedCount || !token"
+              @click="shareSelected"
+            >
+              <Icon name="share" />
+              {{ sharingBulk ? "Copying…" : selectedCount ? `Share (${selectedCount})` : "Share" }}
+            </button>
+            <button
+              v-if="eventTab === 'upcoming'"
+              type="button"
+              class="danger"
+              :disabled="busy || sharingBulk || !selectedCount || !token"
+              @click="askDeleteSelected"
+            >
+              <Icon name="trash" />
+              {{ selectedCount ? `Delete (${selectedCount})` : "Delete" }}
+            </button>
+            <NuxtLink to="/create" class="btn primary create-action">
+              <Icon name="plus" />
+              Create
+            </NuxtLink>
+          </div>
+          <CampfireIdentity />
         </div>
       </div>
 
-      <div class="filters">
-        <div class="field" style="margin-bottom: 0">
+      <div class="feed-bar">
+        <div class="view-tabs" role="tablist" aria-label="Meetup feed">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="eventTab === 'upcoming'"
+            :class="{ active: eventTab === 'upcoming' }"
+            @click="setEventTab('upcoming')"
+          >
+            Upcoming
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="eventTab === 'past'"
+            :class="{ active: eventTab === 'past' }"
+            @click="setEventTab('past')"
+          >
+            Past
+          </button>
+        </div>
+
+        <div class="filters">
+          <div class="field" style="margin-bottom: 0">
           <label for="events-club">Club</label>
           <select
             id="events-club"
@@ -406,23 +714,49 @@ async function onConfirmDelete() {
               {{ c.name }}
             </option>
           </select>
+          </div>
         </div>
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
+      <p v-if="progress" class="muted">{{ progress }}</p>
       <p v-else-if="loadingEvents && !eventRows.length" class="muted">Loading meetups…</p>
+
+      <div v-if="eventRows.length" class="selection-bar">
+        <label class="select-all">
+          <input
+            type="checkbox"
+            :checked="allSelected"
+            :disabled="busy || sharingBulk"
+            :indeterminate.prop="selectedCount > 0 && !allSelected"
+            @change="toggleSelectAll"
+          />
+          <span>{{ allSelected ? "Deselect all" : "Select all" }}</span>
+        </label>
+        <span v-if="selectedCount" class="muted">{{ selectedCount }} selected</span>
+      </div>
 
       <ul v-if="eventRows.length" class="event-list">
         <li
           v-for="row in eventRows"
           :key="row.ev.id"
           class="event-row"
+          :class="{ selected: isSelected(row.ev.id) }"
           role="button"
           tabindex="0"
-          :aria-label="row.ongoing ? `Open ${row.name}, ongoing` : `Open ${row.name}`"
+          :aria-label="eventAriaLabel(row)"
           @click="openDetail(row.ev)"
           @keydown.enter.prevent="openDetail(row.ev)"
         >
+          <label class="event-check" @click.stop @keydown.stop>
+            <input
+              type="checkbox"
+              :checked="isSelected(row.ev.id)"
+              :disabled="busy || sharingBulk"
+              :aria-label="`Select ${row.name}`"
+              @change="toggleSelected(row.ev.id)"
+            />
+          </label>
           <div class="event-cover" aria-hidden="true">
             <img v-if="row.cover" :src="row.cover" alt="" />
             <span v-else>{{ row.initial }}</span>
@@ -430,6 +764,25 @@ async function onConfirmDelete() {
           <div class="event-body">
             <strong class="event-name">
               {{ row.name }}
+              <span
+                v-if="row.hasLocation"
+                class="event-flag"
+                title="Map location"
+              >
+                <svg class="event-flag-pin" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M12 2.2a7.2 7.2 0 0 0-7.2 7.2c0 5.4 7.2 12.4 7.2 12.4s7.2-7 7.2-12.4A7.2 7.2 0 0 0 12 2.2Zm0 9.6a2.4 2.4 0 1 1 0-4.8 2.4 2.4 0 0 1 0 4.8Z"
+                  />
+                </svg>
+              </span>
+              <img
+                v-if="row.hasLiveEvent"
+                class="event-flag-star"
+                :src="caStarUrl"
+                alt=""
+                title="Associated with a live event"
+              />
               <span v-if="row.ongoing" class="ongoing-badge">Ongoing</span>
             </strong>
             <div class="event-meta muted">
@@ -446,12 +799,13 @@ async function onConfirmDelete() {
               class="icon-btn"
               title="Copy share link"
               aria-label="Copy share link"
-              :disabled="busy || !token || sharingId === row.ev.id"
+              :disabled="busy || sharingBulk || !token || sharingId === row.ev.id"
               @click="shareEvent(row.ev)"
             >
               <Icon name="share" />
             </button>
             <button
+              v-if="eventTab === 'upcoming'"
               type="button"
               class="icon-btn"
               title="Edit"
@@ -462,6 +816,7 @@ async function onConfirmDelete() {
               <Icon name="edit" />
             </button>
             <button
+              v-if="eventTab === 'upcoming'"
               type="button"
               class="icon-btn icon-btn-danger"
               title="Delete"
@@ -474,17 +829,10 @@ async function onConfirmDelete() {
           </div>
         </li>
       </ul>
-      <div v-if="eventsHasMore" class="load-more">
-        <button
-          type="button"
-          :disabled="loadingMore || loadingEvents || !token"
-          @click="loadMoreEvents"
-        >
-          {{ loadingMore ? "Loading…" : "Load more" }}
-        </button>
-      </div>
-      <p v-else-if="selectedClubId && !loadingEvents && !eventRows.length" class="muted">
-        No upcoming meetups in this club.
+      <div v-if="eventsHasMore" ref="loadMoreSentinel" class="load-more-sentinel" aria-hidden="true" />
+      <p v-if="loadingMore" class="muted load-more-status">Loading more…</p>
+      <p v-if="!eventsHasMore && selectedClubId && !loadingEvents && !eventRows.length" class="muted">
+        {{ eventTab === "past" ? "No past meetups in this club." : "No upcoming meetups in this club." }}
       </p>
       <p v-else-if="!token" class="muted">
         Add your Campfire JWT in Settings to load events.
@@ -504,7 +852,30 @@ async function onConfirmDelete() {
       >
         <div class="detail-head">
           <div>
-            <h2 id="event-detail-title">{{ detailRow.name }}</h2>
+            <h2 id="event-detail-title" class="detail-title">
+              {{ detailRow.name }}
+              <span
+                v-if="detailRow.hasLocation"
+                class="event-flag"
+                title="Map location"
+                role="img"
+                aria-label="Map location"
+              >
+                <svg class="event-flag-pin" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M12 2.2a7.2 7.2 0 0 0-7.2 7.2c0 5.4 7.2 12.4 7.2 12.4s7.2-7 7.2-12.4A7.2 7.2 0 0 0 12 2.2Zm0 9.6a2.4 2.4 0 1 1 0-4.8 2.4 2.4 0 0 1 0 4.8Z"
+                  />
+                </svg>
+              </span>
+              <img
+                v-if="detailRow.hasLiveEvent"
+                class="event-flag-star"
+                :src="caStarUrl"
+                alt="Associated with a live event"
+                title="Associated with a live event"
+              />
+            </h2>
             <p v-if="selectedClubLabel || detailRow.creator" class="muted detail-sub">
               <span v-if="selectedClubLabel">{{ selectedClubLabel }}</span>
               <span v-if="detailRow.creator" class="meta-sep">by {{ detailRow.creator }}</span>
@@ -543,11 +914,17 @@ async function onConfirmDelete() {
             <Icon name="share" />
             {{ sharingId === detailEvent.id ? "Copying…" : "Share" }}
           </button>
-          <button type="button" :disabled="busy" @click="editEvent(detailEvent)">
+          <button
+            v-if="eventTab === 'upcoming'"
+            type="button"
+            :disabled="busy"
+            @click="editEvent(detailEvent)"
+          >
             <Icon name="edit" />
             Edit
           </button>
           <button
+            v-if="eventTab === 'upcoming'"
             type="button"
             class="danger"
             :disabled="busy || !token"
@@ -561,14 +938,16 @@ async function onConfirmDelete() {
     </div>
 
     <ConfirmDialog
-      :open="confirmDeleteId != null"
-      title="Delete meetup?"
+      :open="confirmDeleteId != null || confirmBulk"
+      :title="confirmBulk ? 'Delete meetups?' : 'Delete meetup?'"
       :message="
-        confirmDeleteEvent
-          ? `Delete “${confirmDeleteEvent.name || 'this meetup'}” from Campfire? This cannot be undone.`
-          : 'Delete this meetup from Campfire?'
+        confirmBulk
+          ? `Delete ${selectedCount} meetup${selectedCount === 1 ? '' : 's'} from Campfire? This cannot be undone.`
+          : confirmDeleteEvent
+            ? `Delete “${confirmDeleteEvent.name || 'this meetup'}” from Campfire? This cannot be undone.`
+            : 'Delete this meetup from Campfire?'
       "
-      confirm-label="Delete"
+      :confirm-label="confirmBulk ? `Delete ${selectedCount}` : 'Delete'"
       :danger="true"
       :busy="busy"
       @cancel="closeConfirm"
@@ -593,23 +972,94 @@ async function onConfirmDelete() {
 .page-head .muted {
   margin: 0;
 }
+.page-head-end {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
 .page-actions {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin-left: auto;
   align-items: center;
+}
+.page-actions .create-action {
+  margin-left: 0.25rem;
+}
+.feed-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+.view-tabs {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+}
+.view-tabs button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0.35rem 0.75rem;
+  border-radius: calc(var(--radius) - 2px);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.view-tabs button.active {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+.view-tabs button:hover:not(.active) {
+  color: var(--text);
 }
 .filters {
   display: grid;
-  grid-template-columns: minmax(12rem, 20rem);
+  grid-template-columns: minmax(0, 20rem);
   gap: 0.75rem;
-  margin-bottom: 1rem;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
 }
-.load-more {
-  margin-top: 0.85rem;
+.selection-bar {
   display: flex;
-  justify-content: center;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.event-check {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.event-check input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--accent);
+}
+.load-more-sentinel {
+  height: 1px;
+}
+.load-more-status {
+  margin: 0.75rem 0 0;
+  text-align: center;
 }
 .event-list {
   list-style: none;
@@ -621,7 +1071,7 @@ async function onConfirmDelete() {
 }
 .event-row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto auto 1fr auto;
   gap: 0.85rem;
   align-items: center;
   padding: 0.85rem 1rem;
@@ -632,6 +1082,10 @@ async function onConfirmDelete() {
 }
 .event-row:hover {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.event-row.selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elevated));
 }
 .event-row:focus-visible {
   outline: 2px solid var(--accent);
@@ -670,6 +1124,25 @@ async function onConfirmDelete() {
   align-items: center;
   gap: 0.4rem;
 }
+.event-flag {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  line-height: 0;
+}
+.event-flag-pin {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+  color: var(--text);
+}
+.event-flag-star {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+  object-fit: contain;
+  flex-shrink: 0;
+}
 .ongoing-badge {
   font-size: 0.7rem;
   font-weight: 600;
@@ -705,6 +1178,12 @@ async function onConfirmDelete() {
 }
 .detail-head h2 {
   margin: 0 0 0.25rem;
+}
+.detail-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
 }
 .detail-sub {
   margin: 0;
@@ -760,14 +1239,21 @@ async function onConfirmDelete() {
   flex-wrap: wrap;
 }
 @media (max-width: 560px) {
+  .feed-bar {
+    flex-wrap: wrap;
+  }
   .filters {
+    flex-basis: 12rem;
     grid-template-columns: 1fr;
   }
   .event-row {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto auto 1fr;
     grid-template-areas:
-      "cover body"
-      "actions actions";
+      "check cover body"
+      "actions actions actions";
+  }
+  .event-check {
+    grid-area: check;
   }
   .event-cover {
     grid-area: cover;

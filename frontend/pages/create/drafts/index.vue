@@ -100,9 +100,9 @@ const confirmTitle = computed(() => {
     case "selected":
       return "Post drafts?";
     case "remove":
-      return "Remove draft?";
+      return "Delete draft?";
     case "clear":
-      return "Clear drafts?";
+      return "Delete drafts?";
     default:
       return "";
   }
@@ -120,10 +120,10 @@ const confirmMessage = computed(() => {
     case "remove": {
       const item = drafts.value.find((d) => d.id === confirmDraftId.value);
       const name = item ? resolveDraftDisplay(item, timeZone.value).name : "this draft";
-      return `Remove “${name}”? This cannot be undone.`;
+      return `Delete “${name}”? This cannot be undone.`;
     }
     case "clear":
-      return `Remove ${selectedCount.value} draft${selectedCount.value === 1 ? "" : "s"}? This cannot be undone.`;
+      return `Delete ${selectedCount.value} draft${selectedCount.value === 1 ? "" : "s"}? This cannot be undone.`;
     default:
       return "";
   }
@@ -136,9 +136,9 @@ const confirmLabel = computed(() => {
     case "selected":
       return `Post ${selectedCount.value}`;
     case "remove":
-      return "Remove";
+      return "Delete";
     case "clear":
-      return `Clear ${selectedCount.value}`;
+      return `Delete ${selectedCount.value}`;
     default:
       return "Confirm";
   }
@@ -182,7 +182,7 @@ function askRemoveOne(id: number) {
 
 function askClearSelected() {
   if (!selectedCount.value) {
-    error.value = "Select at least one draft to clear";
+    error.value = "Select at least one draft to delete";
     return;
   }
   confirmKind.value = "clear";
@@ -224,7 +224,7 @@ async function removeOne(id: number) {
     toggleSelected(id, false);
     toast.success("Draft deleted", name || undefined);
   } catch (e: any) {
-    error.value = e.message || "Failed to remove draft";
+    error.value = e.message || "Failed to delete draft";
     if (isCampfireTokenError(e)) invalidateToken();
   } finally {
     busy.value = false;
@@ -234,7 +234,7 @@ async function removeOne(id: number) {
 async function clearMany(ids: number[]) {
   const pending = ids.filter((id) => drafts.value.some((d) => d.id === id));
   if (!pending.length) {
-    error.value = "No drafts to clear";
+    error.value = "No drafts to delete";
     return;
   }
 
@@ -249,7 +249,7 @@ async function clearMany(ids: number[]) {
       const id = pending[i];
       const item = drafts.value.find((d) => d.id === id);
       const name = item ? resolveDraftDisplay(item, timeZone.value).name : `#${id}`;
-      progress.value = `Clearing ${i + 1} of ${pending.length}: ${name}`;
+      progress.value = `Deleting ${i + 1} of ${pending.length}: ${name}`;
       try {
         await api(`/api/drafts/${id}`, {
           method: "DELETE",
@@ -274,7 +274,7 @@ async function clearMany(ids: number[]) {
       toast.success(`Deleted ${removed.length}, ${errors.length} failed`);
       error.value = errors.join("; ");
     } else {
-      error.value = errors.join("; ") || "Failed to clear drafts";
+      error.value = errors.join("; ") || "Failed to delete drafts";
     }
   } finally {
     busy.value = false;
@@ -410,28 +410,32 @@ const draftRows = computed(() =>
             Build new ones on <NuxtLink to="/create">Create</NuxtLink>.
           </p>
         </div>
-        <div class="page-actions">
-          <button
-            type="button"
-            class="primary"
-            :disabled="posting || busy || !selectedCount || !token"
-            @click="askPostSelected"
-          >
-            <Icon name="post" />
-            {{ posting ? "Posting…" : selectedCount ? `Post (${selectedCount})` : "Post" }}
-          </button>
-          <button
-            type="button"
-            :disabled="posting || busy || !selectedCount"
-            @click="askClearSelected"
-          >
-            <Icon name="clear" />
-            {{ selectedCount ? `Clear (${selectedCount})` : "Clear" }}
-          </button>
-          <NuxtLink to="/create" class="btn primary create-action">
-            <Icon name="plus" />
-            Create
-          </NuxtLink>
+        <div class="page-head-end">
+          <div class="page-actions">
+            <button
+              type="button"
+              class="primary"
+              :disabled="posting || busy || !selectedCount || !token"
+              @click="askPostSelected"
+            >
+              <Icon name="post" />
+              {{ posting ? "Posting…" : selectedCount ? `Post (${selectedCount})` : "Post" }}
+            </button>
+            <button
+              type="button"
+              class="danger"
+              :disabled="posting || busy || !selectedCount"
+              @click="askClearSelected"
+            >
+              <Icon name="trash" />
+              {{ selectedCount ? `Delete (${selectedCount})` : "Delete" }}
+            </button>
+            <NuxtLink to="/create" class="btn primary create-action">
+              <Icon name="plus" />
+              Create
+            </NuxtLink>
+          </div>
+          <CampfireIdentity />
         </div>
       </div>
 
@@ -512,8 +516,8 @@ const draftRows = computed(() =>
             <button
               type="button"
               class="icon-btn icon-btn-danger"
-              title="Remove"
-              aria-label="Remove"
+              title="Delete"
+              aria-label="Delete"
               :disabled="posting || busy"
               @click="askRemoveOne(row.item.id)"
             >
@@ -558,11 +562,17 @@ const draftRows = computed(() =>
 .page-head .muted {
   margin: 0;
 }
+.page-head-end {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
 .page-actions {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin-left: auto;
   align-items: center;
 }
 .page-actions .create-action {

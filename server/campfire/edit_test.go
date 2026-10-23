@@ -1,6 +1,10 @@
 package campfire
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestParseLocationString(t *testing.T) {
 	lat, lng, ok := ParseLocationString("[8.6821, 50.1109]")
@@ -21,6 +25,37 @@ func TestParseLocationString(t *testing.T) {
 	}
 	if _, _, ok := ParseLocationString("not-a-point"); ok {
 		t.Fatal("invalid should fail")
+	}
+}
+
+func TestEditEventLiveEventIDJSON(t *testing.T) {
+	set := NullableLiveEventID("abc")
+	in := EditEventInput{CampfireLiveEventID: &set, UserIDs: []string{}}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"campfireLiveEventId":"abc"`) {
+		t.Fatalf("set id: %s", raw)
+	}
+
+	clear := NullableLiveEventID("")
+	in.CampfireLiveEventID = &clear
+	raw, err = json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"campfireLiveEventId":null`) {
+		t.Fatalf("clear id: %s", raw)
+	}
+
+	in.CampfireLiveEventID = nil
+	raw, err = json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "campfireLiveEventId") {
+		t.Fatalf("omit id: %s", raw)
 	}
 }
 

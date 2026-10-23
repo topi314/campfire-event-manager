@@ -187,6 +187,8 @@ export type EditMeetupInput = {
   coverPhotoUrl?: string;
   commentsPermissions?: string;
   campfireLiveEventId?: string;
+  /** When true and campfireLiveEventId is empty, the edit clears the live-event link. */
+  clearCampfireLiveEvent?: boolean;
   allInvited?: boolean;
   createdByCommunityAmbassador?: boolean;
   discordChannelId?: string;

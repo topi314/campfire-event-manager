@@ -49,12 +49,16 @@ const { matchOrder: categoryMatchOrder, fixedLocalHour: isFixedLocalHourCategory
 
 const route = useRoute();
 const router = useRouter();
-/** True while applying /create?mode=edit&clubId=&eventId= from Events. */
+/** True while applying /edit?clubId=&eventId= from the events pencil. */
 let editDeepLinkActive = false;
+/** Edit opened from a meetup’s pencil — that meetup is already chosen. */
+const meetupPickerHidden = ref(false);
 
 const props = defineProps<{
   /** When set, load this club draft into the create form. */
   draftId?: number | null;
+  /** Page this flow was opened on. Create and edit are separate routes. */
+  flowMode?: "create" | "edit";
 }>();
 
 const { user, loaded, ensureAuth } = useAuth();
@@ -66,12 +70,11 @@ const toast = useToast();
 
 type FlowMode = "create" | "edit";
 
-const mode = ref<FlowMode>("create");
+const mode = ref<FlowMode>(props.flowMode === "edit" ? "edit" : "create");
 const templates = ref<MeetupTemplate[]>([]);
 const clubs = ref<Club[]>([]);
 const liveEvents = ref<LiveEvent[]>([]);
 const clubEvents = ref<ClubEvent[]>([]);
-const campfireName = ref("");
 const error = ref("");
 const success = ref("");
 const creating = ref(false);
@@ -87,6 +90,8 @@ let hydrateGen = 0;
 
 const selectedClubId = ref("");
 const selectedLiveEventId = ref("");
+/** Live-event id loaded with the meetup being edited. Used to clear the link on save. */
+const loadedLiveEventId = ref("");
 const selectedTemplateId = ref<number | "">("");
 const selectedEventId = ref("");
 const originalCoverPhotoUrl = ref("");
@@ -180,9 +185,15 @@ watch(token, async (t) => {
 });
 
 watch(
-  () => [route.query.mode, route.query.clubId, route.query.eventId] as const,
+  () => [route.query.clubId, route.query.eventId] as const,
   async () => {
-    if (!user.value || !token.value) return;
+    if (mode.value !== "edit" || !user.value || !token.value) return;
+    const clubId = typeof route.query.clubId === "string" ? route.query.clubId.trim() : "";
+    const eventId = typeof route.query.eventId === "string" ? route.query.eventId.trim() : "";
+    if (!clubId || !eventId) {
+      if (!editDeepLinkActive) meetupPickerHidden.value = false;
+      return;
+    }
     await applyEditDeepLink();
   },
 );
@@ -231,14 +242,12 @@ async function loadCampfire() {
   try {
     const ok = await validateToken({ openSettingsOnFail: false });
     if (!ok || !campfireMe.value) {
-      campfireName.value = "";
       clubs.value = [];
       liveEvents.value = [];
       error.value = "Campfire token invalid";
       openSettings({ focusToken: true });
       return;
     }
-    campfireName.value = campfireMe.value.displayName || campfireMe.value.username;
     clubs.value = await api<Club[]>("/api/campfire/clubs", { headers: authHeaders() });
     try {
       liveEvents.value = await api<LiveEvent[]>("/api/campfire/live-events", {
@@ -250,7 +259,6 @@ async function loadCampfire() {
     }
     applyDefaultSelections();
   } catch (e: any) {
-    campfireName.value = "";
     clubs.value = [];
     liveEvents.value = [];
     error.value = e.message || "Campfire token invalid";
@@ -285,12 +293,15 @@ function applyDefaultSelections() {
   }
 }
 
-/** Open edit mode from /create?mode=edit&clubId=&eventId= (Events page). */
+/** Open a specific meetup from /edit?clubId=&eventId= (events pencil). */
 async function applyEditDeepLink() {
-  const modeQ = route.query.mode;
+  if (mode.value !== "edit") return;
   const clubId = typeof route.query.clubId === "string" ? route.query.clubId.trim() : "";
   const eventId = typeof route.query.eventId === "string" ? route.query.eventId.trim() : "";
-  if (modeQ !== "edit" || !clubId || !eventId) return;
+  if (!clubId || !eventId) return;
+  if (selectedEventId.value === eventId && selectedClubId.value === clubId && meetupPickerHidden.value) {
+    return;
+  }
   if (!token.value || !clubs.value.length) return;
   if (!clubs.value.some((c) => c.id === clubId)) {
     error.value = "That club is not in your admin clubs.";
@@ -299,7 +310,6 @@ async function applyEditDeepLink() {
 
   editDeepLinkActive = true;
   beginProgrammaticUpdate();
-  mode.value = "edit";
   editingDraftId.value = null;
   selectedClubId.value = clubId;
   selectedEventId.value = "";
@@ -307,10 +317,11 @@ async function applyEditDeepLink() {
     await loadClubEvents({ force: true });
     if (!clubEvents.value.some((e) => e.id === eventId)) {
       error.value = "That meetup was not found in the club’s upcoming events.";
+      meetupPickerHidden.value = false;
       return;
     }
     selectedEventId.value = eventId;
-    await router.replace({ path: "/create", query: {} });
+    meetupPickerHidden.value = true;
   } finally {
     endProgrammaticUpdate();
     editDeepLinkActive = false;
@@ -336,6 +347,13 @@ const selectedClubDiscord = computed(
 const selectedLiveEvent = computed(() =>
   liveEvents.value.find((e) => e.id === selectedLiveEventId.value) || null,
 );
+
+/** Linked id that is no longer in the marketable live-event list. */
+const orphanLiveEventId = computed(() => {
+  const id = selectedLiveEventId.value.trim();
+  if (!id || liveEvents.value.some((e) => e.id === id)) return "";
+  return id;
+});
 
 const liveEventCategory = computed(
   () => selectedLiveEvent.value?.category?.trim() || "",
@@ -982,6 +1000,10 @@ function resolvedDiscordChannelId(): string {
 
 watch(selectedClubId, () => {
   if (mode.value === "edit") {
+    if (!editDeepLinkActive && meetupPickerHidden.value) {
+      meetupPickerHidden.value = false;
+      if (route.query.eventId) void router.replace({ path: "/edit", query: {} });
+    }
     selectedEventId.value = "";
     setSelectedTemplateId("");
     for (const k of Object.keys(placeholderValues)) delete placeholderValues[k];
@@ -1006,7 +1028,14 @@ watch(preferredClubId, (preferred) => {
   selectedClubId.value = preferred;
 });
 
-watch(selectedLiveEventId, () => {
+watch(selectedLiveEventId, (id) => {
+  if (mode.value === "edit") {
+    // Keep the rest of the meetup. Only the association follows the picker.
+    if (draftReady.value && selectedEventId.value) {
+      draft.campfireLiveEventId = (id || "").trim();
+    }
+    return;
+  }
   // Don't skip when programmaticUpdate is set — club bootstrap often awaits
   // meetup-schedule with that flag held, and the live-event change must still
   // auto-select/apply a template.
@@ -1087,6 +1116,7 @@ watch(selectedEventId, (id) => {
 
 watch(mode, (next, prev) => {
   if (next === prev) return;
+  if (next !== "edit") meetupPickerHidden.value = false;
   error.value = "";
   success.value = "";
   editingDraftId.value = null;
@@ -1113,7 +1143,8 @@ const canCreate = computed(
     !!draftLocation.value &&
     !!draft.eventTime &&
     !!draft.eventEndTime &&
-    !!draft.name.trim(),
+    !!draft.name.trim() &&
+    !liveEventWindowError.value,
 );
 
 const canSaveDraft = computed(
@@ -1129,7 +1160,8 @@ const canSaveEdit = computed(
     !!draftLocation.value &&
     !!draft.eventTime &&
     !!draft.eventEndTime &&
-    !!draft.name.trim(),
+    !!draft.name.trim() &&
+    !liveEventWindowError.value,
 );
 
 /** Earliest allowed end for `<input type="datetime-local" :min>`. */
@@ -1230,6 +1262,8 @@ function clearEditDraft() {
   draft.discordChannelId = "";
   draft.campfireLiveEventId = "";
   draft.locationJitterMeters = 0;
+  loadedLiveEventId.value = "";
+  selectedLiveEventId.value = "";
 }
 
 function onPlaceSelected(place: { lat: number; lng: number; label?: string }) {
@@ -1321,11 +1355,13 @@ async function loadDraftFromClubEvent(ev: ClubEvent) {
   draft.allInvited = ev.allInvited ?? true;
   draft.createdByCommunityAmbassador = ev.createdByCommunityAmbassador ?? true;
   draft.discordChannelId = (ev.discordChannelId || "").trim();
-  draft.campfireLiveEventId = ev.campfireLiveEventId || "";
+  const liveId = (ev.campfireLiveEventId || "").trim();
+  draft.campfireLiveEventId = liveId;
+  loadedLiveEventId.value = liveId;
   draft.locationJitterMeters = 0;
   draftLocation.value = parseCampfireLocation(ev.location);
-  if (ev.campfireLiveEventId && ev.campfireLiveEventId !== selectedLiveEventId.value) {
-    selectedLiveEventId.value = ev.campfireLiveEventId;
+  if (selectedLiveEventId.value !== liveId) {
+    selectedLiveEventId.value = liveId;
   }
 
   const start = isoToLocalInput(ev.eventTime);
@@ -1368,6 +1404,22 @@ function clubEventOptionLabel(ev: ClubEvent) {
   return when && when !== "—" ? `${ev.name} · ${when}` : ev.name;
 }
 
+function editLiveEventFields(): Pick<
+  EditMeetupInput,
+  "campfireLiveEventId" | "clearCampfireLiveEvent"
+> {
+  const liveId = (
+    mode.value === "edit"
+      ? selectedLiveEventId.value
+      : draft.campfireLiveEventId || selectedLiveEventId.value
+  ).trim();
+  if (liveId) return { campfireLiveEventId: liveId };
+  if (mode.value === "edit" && loadedLiveEventId.value.trim()) {
+    return { clearCampfireLiveEvent: true };
+  }
+  return {};
+}
+
 function buildEditBody(): EditMeetupInput {
   const cover = draft.coverPhotoUrl || "";
   const photoChanged = cover !== (originalCoverPhotoUrl.value || "");
@@ -1382,7 +1434,7 @@ function buildEditBody(): EditMeetupInput {
     address: draft.address || undefined,
     coverPhotoUrl: photoChanged ? cover || undefined : undefined,
     commentsPermissions: draft.commentsPermissions || undefined,
-    campfireLiveEventId: draft.campfireLiveEventId || selectedLiveEventId.value || undefined,
+    ...editLiveEventFields(),
     allInvited: draft.allInvited,
     createdByCommunityAmbassador: draft.createdByCommunityAmbassador,
     ...(resolvedDiscordChannelId()
@@ -1744,32 +1796,11 @@ function templateOptionLabel(t: MeetupTemplate) {
 <template>
   <AppShell>
     <div v-if="loaded && user" class="panel create-flow">
-      <div style="display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; flex-wrap: wrap">
-        <h2 style="margin: 0; font-size: 1.1rem">
+      <div class="flow-title">
+        <h2>
           {{ mode === "edit" ? "Edit meetup" : "Create meetup" }}
         </h2>
-        <span v-if="campfireName" class="muted">Campfire: {{ campfireName }}</span>
-      </div>
-
-      <div class="mode-toggle" role="tablist" aria-label="Meetup mode">
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="mode === 'create'"
-          :class="{ active: mode === 'create' }"
-          @click="mode = 'create'"
-        >
-          Create
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="mode === 'edit'"
-          :class="{ active: mode === 'edit' }"
-          @click="mode = 'edit'"
-        >
-          Edit existing
-        </button>
+        <CampfireIdentity />
       </div>
 
       <p class="muted steps-hint">
@@ -1778,15 +1809,21 @@ function templateOptionLabel(t: MeetupTemplate) {
           <NuxtLink to="/create/drafts">save a draft</NuxtLink>
           to post later
         </template>
+        <template v-else-if="meetupPickerHidden">
+          Change the live event or apply a template → save
+        </template>
         <template v-else>
-          Pick a club and meetup → optionally apply a template → save changes
+          Pick a meetup → change the live event or apply a template → save
         </template>
       </p>
 
       <p v-if="error" class="error">{{ error }}</p>
       <p v-if="success" class="success">{{ success }}</p>
-      <div class="setup-grid">
-        <div class="field">
+      <div
+        class="setup-grid"
+        :class="{ 'setup-grid-wide': mode === 'edit' && !meetupPickerHidden }"
+      >
+        <div class="field setup-club">
           <label for="club">Club</label>
           <select id="club" v-model="selectedClubId">
             <option value="" disabled>
@@ -1798,17 +1835,7 @@ function templateOptionLabel(t: MeetupTemplate) {
           </select>
         </div>
 
-        <div v-if="mode === 'create'" class="field">
-          <label for="live">Live event</label>
-          <select id="live" v-model="selectedLiveEventId">
-            <option value="">None (no linked live event)</option>
-            <option v-for="ev in liveEvents" :key="ev.id" :value="ev.id">
-              {{ liveEventOptionLabel(ev) }}
-            </option>
-          </select>
-        </div>
-
-        <div v-else class="field">
+        <div v-if="mode === 'edit' && !meetupPickerHidden" class="field">
           <label for="meetup">Meetup</label>
           <select id="meetup" v-model="selectedEventId" :disabled="!selectedClubId || loadingEvents">
             <option value="" disabled>
@@ -1828,33 +1855,48 @@ function templateOptionLabel(t: MeetupTemplate) {
           </select>
         </div>
 
-        <div class="field setup-template-lang">
-          <div class="field setup-template">
-            <label for="tpl">Template</label>
-            <select
-              id="tpl"
-              v-model="selectedTemplateId"
-              :disabled="mode === 'edit' && !selectedEventId"
-            >
-              <option value="">{{ mode === "edit" ? "Keep current details" : "No template" }}</option>
-              <option v-for="t in filteredTemplates" :key="t.id" :value="t.id">
-                {{ templateOptionLabel(t) }}
-              </option>
-            </select>
-          </div>
-          <div class="field setup-language">
-            <label for="meetup-language">Language</label>
-            <select
-              id="meetup-language"
-              v-model="meetupLanguage"
-              title="Pokémon name translation; defaults from template or Settings"
-              @change="onMeetupLanguageInput"
-            >
-              <option v-for="l in TEMPLATE_LANGUAGES" :key="l.code" :value="l.code">
-                {{ l.label }}
-              </option>
-            </select>
-          </div>
+        <div class="field setup-live">
+          <label for="live">Live event</label>
+          <select
+            id="live"
+            v-model="selectedLiveEventId"
+            :disabled="mode === 'edit' && !selectedEventId"
+          >
+            <option value="">None (no linked live event)</option>
+            <option v-if="orphanLiveEventId" :value="orphanLiveEventId">
+              Current live event
+            </option>
+            <option v-for="ev in liveEvents" :key="ev.id" :value="ev.id">
+              {{ liveEventOptionLabel(ev) }}
+            </option>
+          </select>
+        </div>
+
+        <div class="field setup-template">
+          <label for="tpl">Template</label>
+          <select
+            id="tpl"
+            v-model="selectedTemplateId"
+            :disabled="mode === 'edit' && !selectedEventId"
+          >
+            <option value="">{{ mode === "edit" ? "Keep current details" : "No template" }}</option>
+            <option v-for="t in filteredTemplates" :key="t.id" :value="t.id">
+              {{ templateOptionLabel(t) }}
+            </option>
+          </select>
+        </div>
+        <div class="field setup-language">
+          <label for="meetup-language">Language</label>
+          <select
+            id="meetup-language"
+            v-model="meetupLanguage"
+            title="Pokémon name translation; defaults from template or Settings"
+            @change="onMeetupLanguageInput"
+          >
+            <option v-for="l in TEMPLATE_LANGUAGES" :key="l.code" :value="l.code">
+              {{ l.label }}
+            </option>
+          </select>
         </div>
       </div>
 
@@ -2191,13 +2233,24 @@ function templateOptionLabel(t: MeetupTemplate) {
 .create-flow :deep(select) {
   padding: 0.45rem 0.6rem;
 }
+.flow-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.flow-title h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
 .steps-hint {
-  margin: 0.25rem 0 0.85rem;
+  margin: 0.65rem 0 0.85rem;
   font-size: 0.85rem;
 }
 .mode-toggle {
   display: inline-flex;
-  margin: 0.75rem 0 0.15rem;
+  margin: 0;
   padding: 0.2rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -2243,18 +2296,17 @@ function templateOptionLabel(t: MeetupTemplate) {
 }
 .setup-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 11rem) minmax(0, 2fr) minmax(0, 1.35fr) minmax(6.5rem, 8.5rem);
   gap: 0.75rem 1rem;
   margin-bottom: 0.35rem;
+  align-items: end;
 }
-.setup-template-lang {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(7.5rem, 0.85fr);
-  gap: 0.75rem 0.65rem;
-  margin-bottom: 0 !important;
+.setup-grid-wide {
+  grid-template-columns: minmax(0, 10rem) minmax(0, 1.25fr) minmax(0, 1.8fr) minmax(0, 1.15fr) minmax(6.5rem, 8rem);
 }
-.setup-template-lang > .field {
+.setup-grid > .field {
   margin-bottom: 0 !important;
+  min-width: 0;
 }
 .field-hint {
   margin: 0.25rem 0 0;
@@ -2357,10 +2409,8 @@ function templateOptionLabel(t: MeetupTemplate) {
   font-weight: 700;
 }
 @media (max-width: 900px) {
-  .setup-grid {
-    grid-template-columns: 1fr;
-  }
-  .setup-template-lang {
+  .setup-grid,
+  .setup-grid-wide {
     grid-template-columns: 1fr;
   }
   .editor {

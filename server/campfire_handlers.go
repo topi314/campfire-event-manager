@@ -140,7 +140,8 @@ func (s *Server) campfireClubEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	after := q.Get("after")
 	lite := q.Get("lite") == "1" || strings.EqualFold(q.Get("lite"), "true")
-	res, err := s.campfire.ActiveEvents(r.Context(), token, clubID, first, after, lite)
+	archived := q.Get("feed") == "past"
+	res, err := s.campfire.ActiveEvents(r.Context(), token, clubID, first, after, lite, archived)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -336,6 +337,7 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 		AllInvited                   *bool             `json:"allInvited"`
 		CreatedByCommunityAmbassador *bool             `json:"createdByCommunityAmbassador"`
 		CampfireLiveEventID          string            `json:"campfireLiveEventId"`
+		ClearCampfireLiveEvent       bool              `json:"clearCampfireLiveEvent"`
 		HasEventPhotoChanged         *bool             `json:"hasEventPhotoChanged"`
 		DiscordChannelID             string            `json:"discordChannelId"`
 		ClubName                     string            `json:"clubName"`
@@ -423,10 +425,16 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 		AllInvited:                   body.AllInvited,
 		UserIDs:                      userIDs,
 		CreatedByCommunityAmbassador: body.CreatedByCommunityAmbassador,
-		CampfireLiveEventID:          strings.TrimSpace(body.CampfireLiveEventID),
 		HasEventPhotoChanged:         body.HasEventPhotoChanged,
 		DiscordChannelID:             strings.TrimSpace(body.DiscordChannelID),
 		Avatar:                       avatar,
+	}
+	if liveID := strings.TrimSpace(body.CampfireLiveEventID); liveID != "" {
+		id := campfire.NullableLiveEventID(liveID)
+		input.CampfireLiveEventID = &id
+	} else if body.ClearCampfireLiveEvent {
+		id := campfire.NullableLiveEventID("")
+		input.CampfireLiveEventID = &id
 	}
 
 	event, err := s.campfire.EditEvent(r.Context(), token, input)

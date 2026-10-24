@@ -207,22 +207,23 @@ defineProps<{
       />
     </template>
 
-    <!-- Add to mine / copy-plus -->
+    <!-- Add to mine / file plus -->
     <template v-else-if="name === 'add'">
       <path
-        d="M9 4H7.5A2.5 2.5 0 0 0 5 6.5v11A2.5 2.5 0 0 0 7.5 20H15a2.5 2.5 0 0 0 2.5-2.5V15"
+        d="M14 4.5H8.2A1.7 1.7 0 0 0 6.5 6.2v11.6A1.7 1.7 0 0 0 8.2 19.5h7.6a1.7 1.7 0 0 0 1.7-1.7V8.2L14 4.5Z"
         stroke="currentColor"
         stroke-width="1.75"
-        stroke-linecap="round"
+        stroke-linejoin="round"
       />
       <path
-        d="M10 4h4.5A2.5 2.5 0 0 1 17 6.5V13"
+        d="M14 4.5V8h3.5"
         stroke="currentColor"
         stroke-width="1.75"
         stroke-linecap="round"
+        stroke-linejoin="round"
       />
-      <path d="M14 10h6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
-      <path d="M17 7v6" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+      <path d="M12 11.5v5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+      <path d="M9.5 14h5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
     </template>
 
     <!-- Plus -->

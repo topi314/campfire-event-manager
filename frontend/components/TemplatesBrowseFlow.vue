@@ -4,6 +4,7 @@ import { TEMPLATE_LANGUAGES, templateLanguageLabel } from "~/utils/languages";
 import { formatInstantDate } from "~/utils/datetime";
 import { coverImageSrc } from "~/utils/covers";
 import { categoryFilterOptions } from "~/utils/eventCategory";
+import { copyTemplateBrowseUrl } from "~/utils/templateShare";
 
 const { options: TEMPLATE_CATEGORY_OPTIONS } = useEventCategories();
 
@@ -28,6 +29,7 @@ const success = ref("");
 const loading = ref(false);
 const busyId = ref<number | null>(null);
 const likeBusyId = ref<number | null>(null);
+const shareBusyId = ref<number | null>(null);
 
 const q = ref("");
 const category = ref("");
@@ -106,23 +108,24 @@ function browseTemplatePath(id: number) {
   return `/templates/browse/${id}`;
 }
 
-async function pushFiltersToRoute(opts?: { path?: string; replace?: boolean }) {
+async function pushFiltersToRoute(opts?: { path?: string; replace?: boolean; reload?: boolean }) {
   const query = filtersQuery();
   const path = opts?.path || route.path;
-  if (path === route.path && queriesEqual(route.query as Record<string, unknown>, query)) {
-    await load();
-    return;
+  const reload = opts?.reload !== false;
+  const sameLocation =
+    path === route.path && queriesEqual(route.query as Record<string, unknown>, query);
+  if (!sameLocation) {
+    ignoreNextQueryWatch = true;
+    try {
+      await navigateTo(
+        { path, query },
+        { replace: opts?.replace !== false },
+      );
+    } finally {
+      ignoreNextQueryWatch = false;
+    }
   }
-  ignoreNextQueryWatch = true;
-  try {
-    await navigateTo(
-      { path, query },
-      { replace: opts?.replace !== false },
-    );
-    await load();
-  } finally {
-    ignoreNextQueryWatch = false;
-  }
+  if (reload) await load();
 }
 
 onMounted(async () => {
@@ -141,7 +144,14 @@ watch(
 );
 
 watch(
-  () => route.query,
+  () =>
+    [
+      queryStr(route.query.q),
+      queryStr(route.query.category),
+      queryStr(route.query.language),
+      queryStr(route.query.creator),
+      queryStr(route.query.sort),
+    ].join("\0"),
   async () => {
     if (ignoreNextQueryWatch) return;
     readFiltersFromRoute();
@@ -178,19 +188,22 @@ function flushTextFilters() {
 
 function openHighlight() {
   const id = props.highlightId;
-  if (id == null || id <= 0) return;
+  if (id == null || id <= 0) {
+    preview.value = null;
+    return;
+  }
   const t = templates.value.find((x) => x.id === id);
   if (t) preview.value = t;
 }
 
 function openPreview(t: MeetupTemplate) {
   preview.value = t;
-  void pushFiltersToRoute({ path: browseTemplatePath(t.id), replace: true });
+  void pushFiltersToRoute({ path: browseTemplatePath(t.id), replace: true, reload: false });
 }
 
 function closePreview() {
   preview.value = null;
-  void pushFiltersToRoute({ path: browseListPath(), replace: true });
+  void pushFiltersToRoute({ path: browseListPath(), replace: true, reload: false });
 }
 
 async function loadFacets() {
@@ -278,6 +291,20 @@ function applyLikeState(id: number, state: LikeState) {
   }
   if (preview.value?.id === id) {
     preview.value = { ...preview.value, ...patch };
+  }
+}
+
+async function copyShareLink(t: MeetupTemplate) {
+  if (shareBusyId.value != null) return;
+  shareBusyId.value = t.id;
+  error.value = "";
+  try {
+    const url = await copyTemplateBrowseUrl(t.id);
+    toast.success("Link copied", url);
+  } catch (e: any) {
+    error.value = e.message || "Could not copy link";
+  } finally {
+    shareBusyId.value = null;
   }
 }
 
@@ -413,6 +440,16 @@ function isHighlight(t: MeetupTemplate) {
             </div>
           </div>
           <div class="row-actions" @click.stop>
+            <button
+              type="button"
+              class="icon-btn"
+              title="Copy link"
+              aria-label="Copy link"
+              :disabled="shareBusyId === t.id"
+              @click="copyShareLink(t)"
+            >
+              <Icon name="share" />
+            </button>
             <TemplateLikes
               compact
               :show-likers="false"

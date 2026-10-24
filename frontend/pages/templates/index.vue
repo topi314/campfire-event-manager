@@ -7,6 +7,7 @@ import {
 } from "~/utils/languages";
 import { coverImageSrc } from "~/utils/covers";
 import { categoryFilterOptions } from "~/utils/eventCategory";
+import { copyTemplateBrowseUrl } from "~/utils/templateShare";
 
 const { options: TEMPLATE_CATEGORY_OPTIONS } = useEventCategories();
 
@@ -29,6 +30,7 @@ const success = ref("");
 const importing = ref(false);
 const publishingId = ref<number | null>(null);
 const unlinkingId = ref<number | null>(null);
+const shareBusyId = ref<number | null>(null);
 const publishTarget = ref<MeetupTemplate | null>(null);
 const publishDescription = ref("");
 const preview = ref<MeetupTemplate | null>(null);
@@ -156,6 +158,20 @@ function startCreate() {
 
 function openPreview(t: MeetupTemplate) {
   preview.value = t;
+}
+
+async function copyShareLink(t: MeetupTemplate) {
+  if (shareBusyId.value != null) return;
+  shareBusyId.value = t.id;
+  error.value = "";
+  try {
+    const url = await copyTemplateBrowseUrl(t.id);
+    toast.success("Link copied", url);
+  } catch (e: any) {
+    error.value = e.message || "Could not copy link";
+  } finally {
+    shareBusyId.value = null;
+  }
 }
 
 function closePreview() {
@@ -571,6 +587,17 @@ function downloadMany() {
                   <Icon name="unpublish" />
                 </button>
               </template>
+              <button
+                v-if="t.publishedAt"
+                type="button"
+                class="icon-btn"
+                title="Copy link"
+                aria-label="Copy link"
+                :disabled="shareBusyId === t.id"
+                @click="copyShareLink(t)"
+              >
+                <Icon name="share" />
+              </button>
               <button
                 type="button"
                 class="icon-btn"

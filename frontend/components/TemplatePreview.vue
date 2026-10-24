@@ -7,6 +7,7 @@ import {
 } from "~/utils/placeholders";
 import { templateLanguageLabel } from "~/utils/languages";
 import { coverImageSrc } from "~/utils/covers";
+import { copyTemplateBrowseUrl } from "~/utils/templateShare";
 
 const props = withDefaults(
   defineProps<{
@@ -31,6 +32,21 @@ const emit = defineEmits<{
 }>();
 
 const { apiBase } = useRuntimeConfig().public;
+const toast = useToast();
+const copyingLink = ref(false);
+
+async function copyShareLink() {
+  if (copyingLink.value) return;
+  copyingLink.value = true;
+  try {
+    const url = await copyTemplateBrowseUrl(props.template.id);
+    toast.success("Link copied", url);
+  } catch (e: any) {
+    toast.error("Could not copy link", e?.message || undefined);
+  } finally {
+    copyingLink.value = false;
+  }
+}
 
 const payload = computed((): MeetupPayload => {
   const p = props.template.payload;
@@ -168,6 +184,15 @@ onBeforeUnmount(() => {
 
       <div class="modal-actions">
         <button type="button" @click="emit('close')">Close</button>
+        <button
+          v-if="variant === 'shared' || template.publishedAt"
+          type="button"
+          :disabled="copyingLink"
+          @click="copyShareLink"
+        >
+          <Icon name="share" />
+          {{ copyingLink ? "Copying…" : "Share" }}
+        </button>
         <button
           v-if="variant === 'shared'"
           type="button"

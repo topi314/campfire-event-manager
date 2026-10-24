@@ -5,6 +5,12 @@ import TemplatesBrowseFlow from "~/components/TemplatesBrowseFlow.vue";
 // keeps the list mounted when a template is opened or closed.
 definePageMeta({
   key: () => "templates-browse",
+  // Opening or closing a listing changes the path. Keep the list where it was.
+  scrollToTop: (to, from) => {
+    const browse = (path: string) =>
+      path === "/templates/browse" || path.startsWith("/templates/browse/");
+    return !(browse(from.path) && browse(to.path));
+  },
 });
 
 const route = useRoute();

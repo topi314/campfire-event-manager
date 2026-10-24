@@ -69,6 +69,8 @@ export type MeetupPayload = {
   address?: string;
   placeId?: string;
   coverPhotoUrl?: string;
+  /** Library used to auto-pick a matching icon on meetup create/edit. */
+  iconLibraryId?: number;
   commentsPermissions?: string;
   /** Optional Discord channel id for Campfire club Discord posts. */
   discordChannelId?: string;

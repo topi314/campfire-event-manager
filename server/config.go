@@ -26,8 +26,8 @@ type LogConfig struct {
 }
 
 type ServerConfig struct {
-	Addr        string `toml:"addr"`
-	PublicURL   string `toml:"public_url"`
+	Addr      string `toml:"addr"`
+	PublicURL string `toml:"public_url"`
 	// AppURL is the browser origin for the SPA (e.g. http://localhost:3000 in Nuxt
 	// dev). Post-login redirects go here. Empty means same origin as PublicURL
 	// (embedded production build).
@@ -42,6 +42,8 @@ type Config struct {
 	DiscordAuth auth.Config     `toml:"discord_auth"`
 	Campfire    campfire.Config `toml:"campfire"`
 	Basemaps    BasemapsConfig  `toml:"basemaps"`
+	// DataDir is the root for icon files. Relative paths are from the process working directory.
+	DataDir string `toml:"data_dir"`
 }
 
 type BasemapsConfig struct {
@@ -70,17 +72,21 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.Log.Format == "" {
 		cfg.Log.Format = LogFormatText
 	}
+	if strings.TrimSpace(cfg.DataDir) == "" {
+		cfg.DataDir = "data"
+	}
 	return cfg, nil
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("\n Log: %+v\n Server: %+v\n Database: %s\n DiscordAuth: %s\n Campfire: %s\n Basemaps: carto_api_key=%s",
+	return fmt.Sprintf("\n Log: %+v\n Server: %+v\n Database: %s\n DiscordAuth: %s\n Campfire: %s\n Basemaps: carto_api_key=%s\n DataDir: %s",
 		c.Log,
 		c.Server,
 		c.Database.String(),
 		c.DiscordAuth.String(),
 		c.Campfire.String(),
 		maskSecret(c.Basemaps.CartoAPIKey),
+		c.DataDir,
 	)
 }
 

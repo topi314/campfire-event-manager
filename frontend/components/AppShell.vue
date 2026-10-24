@@ -63,6 +63,10 @@ watch(token, async (t, prev) => {
             <NuxtLink to="/templates">My templates</NuxtLink>
             <NuxtLink to="/templates/browse">Browse templates</NuxtLink>
           </div>
+          <div class="nav-group">
+            <NuxtLink to="/packs">My packs</NuxtLink>
+            <NuxtLink to="/packs/browse">Browse packs</NuxtLink>
+          </div>
         </nav>
       </div>
       <div class="topbar-actions">

@@ -120,6 +120,25 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("DELETE /api/campfire/meetups/{eventId}", s.requireAuth(s.campfireDeleteMeetup))
 	mux.HandleFunc("POST /api/campfire/meetups/{eventId}/share-link", s.requireAuth(s.campfireMeetupShareLink))
 
+	mux.HandleFunc("GET /api/icon-libraries", s.requireAuth(s.listIconLibraries))
+	mux.HandleFunc("POST /api/icon-libraries", s.requireAuth(s.createIconLibrary))
+	mux.HandleFunc("POST /api/icon-libraries/export", s.requireAuth(s.exportIconLibraries))
+	mux.HandleFunc("POST /api/icon-libraries/import", s.requireAuth(s.importIconLibraries))
+	mux.HandleFunc("PATCH /api/icon-libraries/{id}", s.requireAuth(s.renameIconLibrary))
+	mux.HandleFunc("DELETE /api/icon-libraries/{id}", s.requireAuth(s.deleteIconLibrary))
+	mux.HandleFunc("POST /api/icon-libraries/{id}/publish", s.requireAuth(s.publishIconLibrary))
+	mux.HandleFunc("POST /api/icon-libraries/{id}/unpublish", s.requireAuth(s.unpublishIconLibrary))
+	mux.HandleFunc("POST /api/icon-libraries/{id}/save", s.requireAuth(s.saveIconLibrary))
+	mux.HandleFunc("DELETE /api/icon-libraries/{id}/save", s.requireAuth(s.unsaveIconLibrary))
+	mux.HandleFunc("GET /api/icon-libraries/{id}/icons", s.requireAuth(s.listLibraryIcons))
+	mux.HandleFunc("POST /api/icon-libraries/{id}/icons", s.requireAuth(s.uploadIcons))
+	mux.HandleFunc("GET /api/icons/match", s.requireAuth(s.matchIcons))
+	mux.HandleFunc("GET /api/icons", s.requireAuth(s.listIcons))
+	mux.HandleFunc("GET /api/icons/{id}", s.requireAuth(s.getIcon))
+	mux.HandleFunc("PATCH /api/icons/{id}", s.requireAuth(s.updateIcon))
+	mux.HandleFunc("DELETE /api/icons/{id}", s.requireAuth(s.deleteIcon))
+	mux.HandleFunc("GET /api/pokemon", s.requireAuth(s.searchPokemon))
+
 	mux.HandleFunc("POST /api/covers", s.requireAuth(s.uploadCover))
 	mux.HandleFunc("GET /api/covers/{id}", s.requireAuth(s.getCover))
 	mux.HandleFunc("DELETE /api/covers/{id}", s.requireAuth(s.deleteCover))
@@ -139,8 +158,8 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) clientConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"cartoApiKey":      s.cfg.Basemaps.CartoKey(),
-		"bugHexeUserIds":   s.cfg.DiscordAuth.BugHexe,
-		"eventCategories":  eventcategory.ClientCatalog(),
+		"cartoApiKey":     s.cfg.Basemaps.CartoKey(),
+		"bugHexeUserIds":  s.cfg.DiscordAuth.BugHexe,
+		"eventCategories": eventcategory.ClientCatalog(),
 	})
 }

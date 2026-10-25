@@ -1,0 +1,2 @@
+ALTER TABLE icons
+    ADD COLUMN icon_name TEXT NOT NULL DEFAULT '';

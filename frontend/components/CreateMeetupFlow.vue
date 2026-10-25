@@ -117,6 +117,7 @@ const draft = reactive({
 const draftLocation = ref<LatLngPoint | null>(null);
 const lastDiscordSettings = ref<ClubDiscordSettings | null>(null);
 const draftReady = ref(false);
+const iconAutoToken = ref(0);
 /** True once the user changes template or meetup fields after auto-fill. */
 const detailsTouched = ref(false);
 /** Suppress detailsTouched while applying live-event / template selections. */
@@ -826,6 +827,7 @@ async function hydrateDraft(opts?: HydrateOpts) {
     draft.details = raw.details || "";
     draft.address = raw.address || "";
     draft.coverPhotoUrl = raw.coverPhotoUrl || "";
+    iconAutoToken.value += 1;
     draft.commentsPermissions = raw.commentsPermissions || "ORGANIZERS_ONLY";
     draft.allInvited = raw.allInvited ?? true;
     draft.createdByCommunityAmbassador = raw.createdByCommunityAmbassador ?? true;
@@ -949,6 +951,7 @@ async function applyTemplateToEdit() {
   draft.details = raw.details || "";
   draft.address = raw.address || "";
   draft.coverPhotoUrl = raw.coverPhotoUrl || "";
+  iconAutoToken.value += 1;
   draft.commentsPermissions = raw.commentsPermissions || "ORGANIZERS_ONLY";
   draft.allInvited = raw.allInvited ?? true;
   draft.createdByCommunityAmbassador = raw.createdByCommunityAmbassador ?? true;
@@ -2087,6 +2090,14 @@ function templateOptionLabel(t: MeetupTemplate) {
           <div class="field">
             <label>Cover photo (optional)</label>
             <CoverPhotoField v-model="draft.coverPhotoUrl" />
+            <IconMeetupPicker
+              v-model="draft.coverPhotoUrl"
+              :fallback="rawPayload?.coverPhotoUrl || ''"
+              :library-id="rawPayload?.iconLibraryId || 0"
+              :category="liveEventCategory || rawPayload?.category || ''"
+              :event-name="selectedLiveEvent?.eventName || ''"
+              :auto-token="iconAutoToken"
+            />
           </div>
           <div class="field" style="margin-bottom: 0">
             <label>Location</label>

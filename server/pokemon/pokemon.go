@@ -213,6 +213,59 @@ func formatCP(cp int) string {
 	return fmt.Sprintf("%d", cp)
 }
 
+// BySlug returns the catalog entry for a slug, or nil.
+func BySlug(slug string) *Species {
+	load()
+	if loadErr != nil {
+		return nil
+	}
+	slug = strings.TrimSpace(strings.ToLower(slug))
+	if slug == "" {
+		return nil
+	}
+	for i := range catalog {
+		if catalog[i].Slug == slug {
+			return &catalog[i]
+		}
+	}
+	return nil
+}
+
+// List returns every catalog species, sorted by English name.
+func List() []Species {
+	load()
+	if loadErr != nil {
+		return nil
+	}
+	out := append([]Species(nil), catalog...)
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
+}
+
+// Search returns up to limit species whose English name or slug contains q.
+func Search(q string, limit int) []Species {
+	load()
+	if loadErr != nil || limit <= 0 {
+		return nil
+	}
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return nil
+	}
+	out := make([]Species, 0, limit)
+	for _, sp := range catalog {
+		if strings.Contains(strings.ToLower(sp.Name), q) || strings.Contains(sp.Slug, q) {
+			out = append(out, sp)
+			if len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out
+}
+
 // MatchEnglish looks up a single title segment against the catalog.
 func MatchEnglish(segment string) *Species {
 	load()

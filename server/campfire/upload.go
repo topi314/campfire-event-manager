@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -78,7 +79,18 @@ func (c *Client) doMultipart(ctx context.Context, token, operation, query string
 	if err := w.Close(); err != nil {
 		return nil, err
 	}
-	return c.roundTripMultipart(ctx, token, operation, w.FormDataContentType(), body.Bytes())
+	raw, err := c.roundTripMultipart(ctx, token, operation, w.FormDataContentType(), body.Bytes())
+	if err != nil {
+		status, resp := 0, []byte(nil)
+		var httpErr *campfireHTTPError
+		if errors.As(err, &httpErr) {
+			status = httpErr.status
+			resp = httpErr.body
+		}
+		logCampfireExchange(ctx, operation, opsJSON, resp, status, err)
+		return nil, err
+	}
+	return raw, nil
 }
 
 func (c *Client) roundTripMultipart(ctx context.Context, token, operation, contentType string, body []byte) (json.RawMessage, error) {
@@ -99,25 +111,28 @@ func (c *Client) roundTripMultipart(ctx context.Context, token, operation, conte
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, &campfireHTTPError{err: err}
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, &campfireHTTPError{status: resp.StatusCode, err: err}
 	}
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("graphql http %s: %s", resp.Status, truncate(data, 400))
-		slog.ErrorContext(ctx, "campfire graphql request failed",
-			slog.String("operation", operation),
-			slog.Any("err", err),
-		)
-		return nil, err
+		return nil, &campfireHTTPError{
+			status: resp.StatusCode,
+			body:   data,
+			err:    fmt.Errorf("graphql http %s: %s", resp.Status, truncate(data, 400)),
+		}
 	}
 
 	var parsed gqlResp
 	if err := json.Unmarshal(data, &parsed); err != nil {
-		return nil, fmt.Errorf("decode graphql: %w", err)
+		return nil, &campfireHTTPError{
+			status: resp.StatusCode,
+			body:   data,
+			err:    fmt.Errorf("decode graphql: %w", err),
+		}
 	}
 	if len(parsed.Errors) > 0 {
 		msgs := make([]string, 0, len(parsed.Errors))
@@ -126,17 +141,23 @@ func (c *Client) roundTripMultipart(ctx context.Context, token, operation, conte
 		}
 		joined := strings.Join(msgs, "; ")
 		if parsed.Data == nil || bytes.Equal(parsed.Data, []byte("null")) {
-			err := fmt.Errorf("graphql: %s", joined)
-			slog.ErrorContext(ctx, "campfire graphql request failed",
-				slog.String("operation", operation),
-				slog.Any("err", err),
-			)
-			return nil, err
+			return nil, &campfireHTTPError{
+				status: resp.StatusCode,
+				body:   data,
+				err:    fmt.Errorf("graphql: %s", joined),
+			}
 		}
-		slog.WarnContext(ctx, "graphql partial errors", slog.String("operation", operation), slog.String("errors", joined))
+		slog.WarnContext(ctx, "graphql partial errors",
+			slog.String("operation", operation),
+			slog.String("response", string(data)),
+		)
 	}
 	if parsed.Data == nil || bytes.Equal(parsed.Data, []byte("null")) {
-		return nil, fmt.Errorf("empty graphql data")
+		return nil, &campfireHTTPError{
+			status: resp.StatusCode,
+			body:   data,
+			err:    fmt.Errorf("empty graphql data"),
+		}
 	}
 	return parsed.Data, nil
 }

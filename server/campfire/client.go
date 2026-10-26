@@ -57,10 +57,6 @@ func (c *Client) Do(ctx context.Context, token, query string, vars any, dest any
 				time.Sleep(time.Duration(attempt+1) * time.Second)
 				continue
 			}
-			slog.ErrorContext(ctx, "campfire graphql request failed",
-				slog.String("operation", operationName(query)),
-				slog.Any("err", err),
-			)
 			return err
 		}
 		if dest != nil {
@@ -73,10 +69,6 @@ func (c *Client) Do(ctx context.Context, token, query string, vars any, dest any
 	if last == nil {
 		last = fmt.Errorf("too many retries")
 	}
-	slog.ErrorContext(ctx, "campfire graphql request failed",
-		slog.String("operation", operationName(query)),
-		slog.Any("err", last),
-	)
 	return last
 }
 
@@ -100,25 +92,34 @@ func (c *Client) roundTrip(ctx context.Context, token, query string, vars any) (
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
+	op := operationName(query)
 	resp, err := c.http.Do(req)
 	if err != nil {
+		logCampfireExchange(ctx, op, body, nil, 0, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
+		logCampfireExchange(ctx, op, body, nil, resp.StatusCode, err)
 		return nil, err
 	}
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusBadGateway {
-		return nil, fmt.Errorf("status %d", resp.StatusCode)
+		err := fmt.Errorf("status %d", resp.StatusCode)
+		logCampfireExchange(ctx, op, body, data, resp.StatusCode, err)
+		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("graphql http %s: %s", resp.Status, truncate(data, 400))
+		err := fmt.Errorf("graphql http %s: %s", resp.Status, truncate(data, 400))
+		logCampfireExchange(ctx, op, body, data, resp.StatusCode, err)
+		return nil, err
 	}
 
 	var parsed gqlResp
 	if err := json.Unmarshal(data, &parsed); err != nil {
-		return nil, fmt.Errorf("decode graphql: %w", err)
+		err = fmt.Errorf("decode graphql: %w", err)
+		logCampfireExchange(ctx, op, body, data, resp.StatusCode, err)
+		return nil, err
 	}
 	if len(parsed.Errors) > 0 {
 		msgs := make([]string, 0, len(parsed.Errors))
@@ -127,14 +128,43 @@ func (c *Client) roundTrip(ctx context.Context, token, query string, vars any) (
 		}
 		joined := strings.Join(msgs, "; ")
 		if parsed.Data == nil || bytes.Equal(parsed.Data, []byte("null")) {
-			return nil, fmt.Errorf("graphql: %s", joined)
+			err := fmt.Errorf("graphql: %s", joined)
+			logCampfireExchange(ctx, op, body, data, resp.StatusCode, err)
+			return nil, err
 		}
-		slog.WarnContext(ctx, "graphql partial errors", slog.String("errors", joined))
+		slog.WarnContext(ctx, "graphql partial errors",
+			slog.String("operation", op),
+			slog.String("request", string(body)),
+			slog.String("response", string(data)),
+		)
 	}
 	if parsed.Data == nil || bytes.Equal(parsed.Data, []byte("null")) {
-		return nil, fmt.Errorf("empty graphql data")
+		err := fmt.Errorf("empty graphql data")
+		logCampfireExchange(ctx, op, body, data, resp.StatusCode, err)
+		return nil, err
 	}
 	return parsed.Data, nil
+}
+
+// campfireHTTPError is a failed Campfire HTTP call with the raw response kept for logging.
+type campfireHTTPError struct {
+	status int
+	body   []byte
+	err    error
+}
+
+func (e *campfireHTTPError) Error() string { return e.err.Error() }
+
+func (e *campfireHTTPError) Unwrap() error { return e.err }
+
+func logCampfireExchange(ctx context.Context, operation string, request, response []byte, status int, err error) {
+	slog.ErrorContext(ctx, "campfire graphql request failed",
+		slog.String("operation", operation),
+		slog.Int("status", status),
+		slog.String("request", string(request)),
+		slog.String("response", string(response)),
+		slog.Any("err", err),
+	)
 }
 
 func formatGqlErr(e gqlErr) string {

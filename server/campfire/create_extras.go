@@ -120,7 +120,7 @@ type CreateActivityReminderInput struct {
 	Location                     string        `json:"location,omitempty"` // "[lng, lat]"
 	Address                      string        `json:"address"`
 	PlaceID                      string        `json:"placeId,omitempty"`
-	CoverPhotoURL                string        `json:"coverPhotoUrl,omitempty"`
+	CoverPhotoURL                string        `json:"coverPhotoUrl"`
 	CommentsPermissions          string        `json:"commentsPermissions,omitempty"`
 	AllInvited                   *bool         `json:"allInvited,omitempty"`
 	UserIDs                      []string      `json:"userIds"`

@@ -11,8 +11,7 @@ import (
 	"github.com/topi314/campfire-event-manager/server/placeholders"
 )
 
-const maxMeetupTitleRunes = 120
-const maxMeetupDetailsRunes = 1000
+const maxMeetupTitleRunes = 60
 
 // meetupPlaceholderMeta is optional context sent with create/edit so the
 // server can resolve {{tokens}} before talking to Campfire.
@@ -98,10 +97,7 @@ func (s *Server) applyMeetupPlaceholders(
 
 func meetupTextOverLimit(name, details string) string {
 	if utf8.RuneCountInString(name) > maxMeetupTitleRunes {
-		return "title exceeds 120 characters after placeholders"
-	}
-	if utf8.RuneCountInString(details) > maxMeetupDetailsRunes {
-		return "description exceeds 1000 characters after placeholders"
+		return "title exceeds 60 characters after placeholders"
 	}
 	return ""
 }

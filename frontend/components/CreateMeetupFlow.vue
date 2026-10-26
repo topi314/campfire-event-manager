@@ -438,8 +438,7 @@ const selectionReady = computed(
   () => placeholderDefs.value.length > 0 || eventPokemonNameDefs.value.length > 0,
 );
 
-const MAX_MEETUP_TITLE = 120;
-const MAX_MEETUP_DETAILS = 1000;
+const MAX_MEETUP_TITLE = 60;
 const eventPokemonResolved = ref<Record<string, string>>({});
 const eventPokemonDirty = ref<Set<string>>(new Set());
 let resolveSeq = 0;
@@ -512,11 +511,7 @@ const previewText = computed(() => resolvedDraftText());
 
 const resolvedNameLen = computed(() => [...previewText.value.name].length);
 const resolvedDetailsLen = computed(() => [...previewText.value.details].length);
-const postLengthBlocked = computed(
-  () =>
-    resolvedNameLen.value > MAX_MEETUP_TITLE ||
-    resolvedDetailsLen.value > MAX_MEETUP_DETAILS,
-);
+const postLengthBlocked = computed(() => resolvedNameLen.value > MAX_MEETUP_TITLE);
 
 function collectEventPokemonNameOverrides(): Record<string, string> {
   const overrides: Record<string, string> = {};
@@ -658,7 +653,7 @@ function validatePlaceholdersForPost(): string | null {
     }
   }
   if (postLengthBlocked.value) {
-    return `Too long after placeholders (title ≤ ${MAX_MEETUP_TITLE}, details ≤ ${MAX_MEETUP_DETAILS})`;
+    return `Title is over ${MAX_MEETUP_TITLE} characters after placeholders`;
   }
   return null;
 }
@@ -1998,12 +1993,7 @@ function templateOptionLabel(t: MeetupTemplate) {
           <div class="field field-details">
             <label for="details">
               Description
-              <span
-                class="char-count muted"
-                :class="{ over: resolvedDetailsLen > MAX_MEETUP_DETAILS }"
-              >
-                {{ resolvedDetailsLen }} / {{ MAX_MEETUP_DETAILS }}
-              </span>
+              <span class="char-count muted">{{ resolvedDetailsLen }}</span>
             </label>
             <PlaceholderTextField
               id="details"
@@ -2015,8 +2005,7 @@ function templateOptionLabel(t: MeetupTemplate) {
             />
             <PlaceholderHelp compact />
             <p v-if="postLengthBlocked" class="error" style="margin-top: 0.35rem">
-              Too long after placeholders (title ≤ {{ MAX_MEETUP_TITLE }}, details ≤
-              {{ MAX_MEETUP_DETAILS }})
+              Title is over {{ MAX_MEETUP_TITLE }} characters after placeholders
             </p>
           </div>
 

@@ -119,10 +119,14 @@ func (c *Client) roundTripMultipart(ctx context.Context, token, operation, conte
 		return nil, &campfireHTTPError{status: resp.StatusCode, err: err}
 	}
 	if resp.StatusCode != http.StatusOK {
+		err := fmt.Errorf("graphql http %s: %s", resp.Status, truncate(data, 400))
+		if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable {
+			err = upstreamStatusError(resp.StatusCode)
+		}
 		return nil, &campfireHTTPError{
 			status: resp.StatusCode,
 			body:   data,
-			err:    fmt.Errorf("graphql http %s: %s", resp.Status, truncate(data, 400)),
+			err:    err,
 		}
 	}
 

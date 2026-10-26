@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/topi314/campfire-event-manager/server/auth"
+	"github.com/topi314/campfire-event-manager/server/campfire"
 	"github.com/topi314/campfire-event-manager/server/database"
 	"github.com/topi314/campfire-event-manager/server/database/dbsqlc"
 )
@@ -46,6 +47,9 @@ func (s *Server) requireAdminOfClub(r *http.Request, clubID string) (string, int
 		if errors.Is(err, errMissingCampfireToken) {
 			return "", http.StatusBadRequest, "missing Campfire Authorization Bearer token"
 		}
+		if campfire.IsUnavailable(err) {
+			return "", http.StatusBadGateway, campfire.UnavailableMessage
+		}
 		return "", http.StatusBadGateway, err.Error()
 	}
 	for _, id := range ids {
@@ -65,7 +69,7 @@ func (s *Server) listDrafts(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "missing Campfire Authorization Bearer token")
 			return
 		}
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	if len(ids) == 0 {
@@ -235,7 +239,7 @@ func (s *Server) clearDrafts(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "missing Campfire Authorization Bearer token")
 			return
 		}
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	if err := s.db.ClearDraftsByClubIDs(r.Context(), ids); err != nil {

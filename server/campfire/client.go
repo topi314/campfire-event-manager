@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -104,8 +105,8 @@ func (c *Client) roundTrip(ctx context.Context, token, query string, vars any) (
 		logCampfireExchange(ctx, op, body, nil, resp.StatusCode, err)
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusBadGateway {
-		err := fmt.Errorf("status %d", resp.StatusCode)
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable {
+		err := upstreamStatusError(resp.StatusCode)
 		logCampfireExchange(ctx, op, body, data, resp.StatusCode, err)
 		return nil, err
 	}
@@ -217,9 +218,36 @@ func operationName(query string) string {
 	return ""
 }
 
+// UnavailableError means Campfire returned 502 or 503.
+type UnavailableError struct {
+	Status int
+}
+
+func (e *UnavailableError) Error() string {
+	return fmt.Sprintf("campfire status %d", e.Status)
+}
+
+// UnavailableMessage is the user-facing text for a Campfire 502 or 503.
+const UnavailableMessage = "Campfire is having issues. Try again in a bit."
+
+func IsUnavailable(err error) bool {
+	var unavailable *UnavailableError
+	return errors.As(err, &unavailable)
+}
+
+func upstreamStatusError(status int) error {
+	if status == http.StatusBadGateway || status == http.StatusServiceUnavailable {
+		return &UnavailableError{Status: status}
+	}
+	return fmt.Errorf("status %d", status)
+}
+
 func isRetryable(err error) bool {
+	if IsUnavailable(err) {
+		return true
+	}
 	s := err.Error()
-	return strings.Contains(s, "429") || strings.Contains(s, "502") || strings.Contains(s, "DeadlineExceeded")
+	return strings.Contains(s, "429") || strings.Contains(s, "DeadlineExceeded")
 }
 
 func truncate(b []byte, n int) string {

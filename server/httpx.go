@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+
+	"github.com/topi314/campfire-event-manager/server/campfire"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -16,6 +18,14 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+func writeCampfireError(w http.ResponseWriter, err error) {
+	if campfire.IsUnavailable(err) {
+		writeError(w, http.StatusBadGateway, campfire.UnavailableMessage)
+		return
+	}
+	writeError(w, http.StatusBadGateway, err.Error())
 }
 
 func decodeJSON(r *http.Request, dest any) error {

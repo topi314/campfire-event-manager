@@ -42,7 +42,7 @@ func (s *Server) campfireMe(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnauthorized, "invalid Campfire token")
 			return
 		}
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	if me == nil {
@@ -60,7 +60,7 @@ func (s *Server) campfireClubs(w http.ResponseWriter, r *http.Request) {
 	}
 	clubs, err := s.campfire.Clubs(r.Context(), token)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, clubs)
@@ -74,7 +74,7 @@ func (s *Server) campfireLiveEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	events, err := s.campfire.LiveEvents(r.Context(), token)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	for i := range events {
@@ -100,7 +100,7 @@ func (s *Server) campfireClubMembers(w http.ResponseWriter, r *http.Request) {
 	if search := strings.TrimSpace(q.Get("q")); search != "" {
 		members, err := s.campfire.SearchClubMembers(r.Context(), token, clubID, search)
 		if err != nil {
-			writeError(w, http.StatusBadGateway, err.Error())
+			writeCampfireError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"members": members, "hasNextPage": false})
@@ -113,7 +113,7 @@ func (s *Server) campfireClubMembers(w http.ResponseWriter, r *http.Request) {
 	after := q.Get("after")
 	members, cursor, hasNext, err := s.campfire.ClubMembers(r.Context(), token, clubID, first, after)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -144,7 +144,7 @@ func (s *Server) campfireClubEvents(w http.ResponseWriter, r *http.Request) {
 	archived := q.Get("feed") == "past"
 	res, err := s.campfire.ActiveEvents(r.Context(), token, clubID, first, after, lite, archived)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -173,7 +173,7 @@ func (s *Server) campfireClubDiscord(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnauthorized, "invalid Campfire token")
 			return
 		}
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, settings)
@@ -196,7 +196,7 @@ func (s *Server) campfireGetMeetup(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusUnauthorized, "invalid Campfire token")
 			return
 		}
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, ev)
@@ -326,6 +326,10 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 	event, err := s.campfire.CreateActivityReminder(r.Context(), token, createInput)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "create activity reminder failed", slog.Any("err", err), slog.String("clubId", clubID))
+		if campfire.IsUnavailable(err) {
+			writeError(w, http.StatusBadGateway, campfire.UnavailableMessage)
+			return
+		}
 		writeError(w, http.StatusBadGateway, "Could not create the meetup. Try again, or reach out on Discord if it keeps happening.")
 		return
 	}
@@ -465,7 +469,7 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 
 	event, err := s.campfire.EditEvent(r.Context(), token, input)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, event)
@@ -485,7 +489,7 @@ func (s *Server) campfireDeleteMeetup(w http.ResponseWriter, r *http.Request) {
 
 	okDel, err := s.campfire.DeleteEvent(r.Context(), token, eventID)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	if !okDel {
@@ -508,7 +512,7 @@ func (s *Server) campfireMeetupShareLink(w http.ResponseWriter, r *http.Request)
 	}
 	shareURL, err := s.campfire.CreateEventLink(r.Context(), token, eventID)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeCampfireError(w, err)
 		return
 	}
 	shortID := campfire.ShortIDFromShareURL(shareURL)

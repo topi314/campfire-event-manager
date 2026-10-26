@@ -37,7 +37,9 @@ type gqlReq struct {
 }
 
 type gqlErr struct {
-	Message string `json:"message"`
+	Message    string         `json:"message"`
+	Path       []any          `json:"path,omitempty"`
+	Extensions map[string]any `json:"extensions,omitempty"`
 }
 
 type gqlResp struct {
@@ -51,10 +53,14 @@ func (c *Client) Do(ctx context.Context, token, query string, vars any, dest any
 		raw, err := c.roundTrip(ctx, token, query, vars)
 		if err != nil {
 			last = err
-			if isRetryable(err) {
+			if isRetryable(err) && attempt < c.retries-1 {
 				time.Sleep(time.Duration(attempt+1) * time.Second)
 				continue
 			}
+			slog.ErrorContext(ctx, "campfire graphql request failed",
+				slog.String("operation", operationName(query)),
+				slog.Any("err", err),
+			)
 			return err
 		}
 		if dest != nil {
@@ -67,6 +73,10 @@ func (c *Client) Do(ctx context.Context, token, query string, vars any, dest any
 	if last == nil {
 		last = fmt.Errorf("too many retries")
 	}
+	slog.ErrorContext(ctx, "campfire graphql request failed",
+		slog.String("operation", operationName(query)),
+		slog.Any("err", last),
+	)
 	return last
 }
 
@@ -113,7 +123,7 @@ func (c *Client) roundTrip(ctx context.Context, token, query string, vars any) (
 	if len(parsed.Errors) > 0 {
 		msgs := make([]string, 0, len(parsed.Errors))
 		for _, e := range parsed.Errors {
-			msgs = append(msgs, e.Message)
+			msgs = append(msgs, formatGqlErr(e))
 		}
 		joined := strings.Join(msgs, "; ")
 		if parsed.Data == nil || bytes.Equal(parsed.Data, []byte("null")) {
@@ -125,6 +135,40 @@ func (c *Client) roundTrip(ctx context.Context, token, query string, vars any) (
 		return nil, fmt.Errorf("empty graphql data")
 	}
 	return parsed.Data, nil
+}
+
+func formatGqlErr(e gqlErr) string {
+	msg := strings.TrimSpace(e.Message)
+	if msg == "" {
+		msg = "graphql error"
+	}
+	var extra []string
+	for _, key := range []string{"code", "errorCode", "detail", "reason", "error"} {
+		if v, ok := e.Extensions[key]; ok {
+			s := strings.TrimSpace(fmt.Sprint(v))
+			if s != "" && s != "<nil>" && s != msg {
+				extra = append(extra, key+"="+s)
+			}
+		}
+	}
+	if ex, ok := e.Extensions["exception"].(map[string]any); ok {
+		if m, ok := ex["message"].(string); ok {
+			m = strings.TrimSpace(m)
+			if m != "" && m != msg {
+				extra = append(extra, m)
+			}
+		}
+	}
+	if len(extra) == 0 && len(e.Extensions) > 0 {
+		b, err := json.Marshal(e.Extensions)
+		if err == nil && len(b) > 2 {
+			extra = append(extra, truncate(b, 300))
+		}
+	}
+	if len(extra) == 0 {
+		return msg
+	}
+	return msg + " (" + strings.Join(extra, "; ") + ")"
 }
 
 func operationName(query string) string {

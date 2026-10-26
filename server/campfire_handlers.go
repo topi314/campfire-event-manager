@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -324,11 +325,13 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 
 	event, err := s.campfire.CreateActivityReminder(r.Context(), token, createInput)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		slog.ErrorContext(r.Context(), "create activity reminder failed", slog.Any("err", err), slog.String("clubId", clubID))
+		writeError(w, http.StatusBadGateway, "Could not create the meetup. Try again, or reach out on Discord if it keeps happening.")
 		return
 	}
 	if event == nil || event.ID == "" {
-		writeError(w, http.StatusBadGateway, "createActivityReminder returned no event")
+		slog.ErrorContext(r.Context(), "create activity reminder returned no event", slog.String("clubId", clubID))
+		writeError(w, http.StatusBadGateway, "Could not create the meetup. Try again, or reach out on Discord if it keeps happening.")
 		return
 	}
 	writeJSON(w, http.StatusCreated, event)

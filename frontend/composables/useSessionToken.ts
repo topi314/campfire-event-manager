@@ -28,6 +28,9 @@ function writeStoredToken(value: string) {
 
 type CampfireTokenSync = { sync: boolean; token: string };
 
+let accountTokenWatchStarted = false;
+let appliedAccountTokenKey = "";
+
 export function useSessionToken() {
   const token = useState("sessionToken", () => readStoredToken());
   const settingsOpen = useState("settingsOpen", () => false);
@@ -36,7 +39,6 @@ export function useSessionToken() {
   const tokenError = useState<string | null>("campfireTokenError", () => null);
   /** Account setting from Postgres. Not stored in localStorage. */
   const tokenSync = useState("campfireTokenSync", () => false);
-  const tokenSyncAvailable = useState("campfireTokenSyncAvailable", () => false);
   const { api } = useApi();
   const { user, loaded } = useAuth();
 
@@ -48,7 +50,7 @@ export function useSessionToken() {
   }
 
   function pushAccountToken() {
-    if (!tokenSync.value || !tokenSyncAvailable.value) return;
+    if (!tokenSync.value) return;
     const snapshot = token.value;
     pushChain = pushChain
       .then(async () => {
@@ -62,39 +64,36 @@ export function useSessionToken() {
       });
   }
 
-  async function refreshTokenSync() {
-    if (!loaded.value || !user.value) {
-      tokenSync.value = false;
-      tokenSyncAvailable.value = false;
-      return;
-    }
-    try {
-      const remote = await api<CampfireTokenSync>("/api/me/campfire-token");
-      tokenSyncAvailable.value = true;
-      tokenSync.value = !!remote.sync;
-      if (!remote.sync) return;
-      if (remote.token) {
-        applyLocal(normalizeSessionToken(remote.token));
-        tokenError.value = null;
-        return;
-      }
-      if (token.value) pushAccountToken();
-    } catch {
-      tokenSync.value = false;
-      tokenSyncAvailable.value = false;
-    }
+  if (import.meta.client && !accountTokenWatchStarted) {
+    accountTokenWatchStarted = true;
+    watch(
+      [user, loaded],
+      () => {
+        if (!loaded.value || !user.value) {
+          tokenSync.value = false;
+          appliedAccountTokenKey = "";
+          return;
+        }
+        const remoteToken = user.value.campfireToken || "";
+        const key = `${user.value.id}:${user.value.campfireTokenSync}:${remoteToken}`;
+        tokenSync.value = !!user.value.campfireTokenSync;
+        if (appliedAccountTokenKey === key) return;
+        appliedAccountTokenKey = key;
+        if (!user.value.campfireTokenSync) return;
+        if (remoteToken) {
+          applyLocal(normalizeSessionToken(remoteToken));
+          tokenError.value = null;
+          return;
+        }
+        if (token.value) pushAccountToken();
+      },
+      { immediate: true },
+    );
   }
 
   onMounted(() => {
     const saved = readStoredToken();
-    if (saved && saved !== token.value) {
-      token.value = saved;
-    }
-    void refreshTokenSync();
-  });
-
-  watch([user, loaded], () => {
-    void refreshTokenSync();
+    if (saved && !token.value) token.value = saved;
   });
 
   function save(next: string) {
@@ -117,7 +116,6 @@ export function useSessionToken() {
       body: JSON.stringify(body),
     });
     tokenSync.value = !!saved.sync;
-    tokenSyncAvailable.value = true;
     if (!saved.sync) return;
     if (saved.token) applyLocal(normalizeSessionToken(saved.token));
   }
@@ -158,7 +156,6 @@ export function useSessionToken() {
     focusToken,
     tokenError,
     tokenSync,
-    tokenSyncAvailable,
     save,
     setTokenSync,
     openSettings,

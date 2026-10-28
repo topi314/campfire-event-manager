@@ -14,11 +14,13 @@ type DiscordUser struct {
 }
 
 type Session struct {
-	ID        string
-	CreatedAt time.Time
-	ExpiresAt time.Time
-	UserID    string
-	Admin     bool
+	ID                string
+	CreatedAt         time.Time
+	ExpiresAt         time.Time
+	UserID            string
+	Admin             bool
+	CampfireToken     []byte
+	CampfireTokenSync bool
 }
 
 type SessionWithUser struct {

@@ -82,6 +82,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /logout", s.logout) // alias
 	mux.HandleFunc("GET /api/me", s.requireAuth(s.apiMe))
 	mux.HandleFunc("PATCH /api/me", s.requireAuth(s.apiUpdateMe))
+	mux.HandleFunc("PUT /api/me/campfire-token", s.requireAuth(s.apiPutCampfireToken))
 
 	mux.HandleFunc("POST /api/placeholders/resolve", s.requireAuth(s.resolvePlaceholders))
 
@@ -139,8 +140,8 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) clientConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"cartoApiKey":      s.cfg.Basemaps.CartoKey(),
-		"bugHexeUserIds":   s.cfg.DiscordAuth.BugHexe,
-		"eventCategories":  eventcategory.ClientCatalog(),
+		"cartoApiKey":     s.cfg.Basemaps.CartoKey(),
+		"bugHexeUserIds":  s.cfg.DiscordAuth.BugHexe,
+		"eventCategories": eventcategory.ClientCatalog(),
 	})
 }

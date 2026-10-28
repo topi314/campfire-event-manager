@@ -28,11 +28,13 @@ func LoadSession(ctx context.Context, db *database.DB, sessionID string) (*Sessi
 	}
 	return &SessionWithUser{
 		Session: Session{
-			ID:        row.SessionID,
-			CreatedAt: timeFrom(row.SessionCreatedAt),
-			ExpiresAt: expires,
-			UserID:    row.SessionUserID,
-			Admin:     row.SessionAdmin,
+			ID:                row.SessionID,
+			CreatedAt:         timeFrom(row.SessionCreatedAt),
+			ExpiresAt:         expires,
+			UserID:            row.SessionUserID,
+			Admin:             row.SessionAdmin,
+			CampfireToken:     row.DiscordUserCampfireToken,
+			CampfireTokenSync: row.DiscordUserCampfireTokenSync.Valid && row.DiscordUserCampfireTokenSync.Bool,
 		},
 		DiscordUser: DiscordUser{
 			ID:          userID,
@@ -47,7 +49,7 @@ func LoadSession(ctx context.Context, db *database.DB, sessionID string) (*Sessi
 	}, nil
 }
 
-func DiscordUserFrom(u dbsqlc.DiscordUser) DiscordUser {
+func DiscordUserFrom(u dbsqlc.GetDiscordUserRow) DiscordUser {
 	return DiscordUser{
 		ID:          u.DiscordUserID,
 		Username:    u.DiscordUserUsername,

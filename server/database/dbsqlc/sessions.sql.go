@@ -72,26 +72,30 @@ SELECT
     u.discord_user_imported_at,
     u.discord_user_timezone,
     u.discord_user_language,
-    u.discord_user_time_format
+    u.discord_user_time_format,
+    u.discord_user_campfire_token,
+    u.discord_user_campfire_token_sync
 FROM sessions s
 LEFT JOIN discord_users u ON s.session_user_id = u.discord_user_id
 WHERE s.session_id = $1
 `
 
 type GetSessionWithUserRow struct {
-	SessionID              string
-	SessionCreatedAt       pgtype.Timestamp
-	SessionExpiresAt       pgtype.Timestamp
-	SessionUserID          string
-	SessionAdmin           bool
-	DiscordUserID          pgtype.Text
-	DiscordUserUsername    pgtype.Text
-	DiscordUserDisplayName pgtype.Text
-	DiscordUserAvatarUrl   pgtype.Text
-	DiscordUserImportedAt  pgtype.Timestamp
-	DiscordUserTimezone    pgtype.Text
-	DiscordUserLanguage    pgtype.Text
-	DiscordUserTimeFormat  pgtype.Text
+	SessionID                    string
+	SessionCreatedAt             pgtype.Timestamp
+	SessionExpiresAt             pgtype.Timestamp
+	SessionUserID                string
+	SessionAdmin                 bool
+	DiscordUserID                pgtype.Text
+	DiscordUserUsername          pgtype.Text
+	DiscordUserDisplayName       pgtype.Text
+	DiscordUserAvatarUrl         pgtype.Text
+	DiscordUserImportedAt        pgtype.Timestamp
+	DiscordUserTimezone          pgtype.Text
+	DiscordUserLanguage          pgtype.Text
+	DiscordUserTimeFormat        pgtype.Text
+	DiscordUserCampfireToken     []byte
+	DiscordUserCampfireTokenSync pgtype.Bool
 }
 
 func (q *Queries) GetSessionWithUser(ctx context.Context, sessionID string) (GetSessionWithUserRow, error) {
@@ -111,6 +115,8 @@ func (q *Queries) GetSessionWithUser(ctx context.Context, sessionID string) (Get
 		&i.DiscordUserTimezone,
 		&i.DiscordUserLanguage,
 		&i.DiscordUserTimeFormat,
+		&i.DiscordUserCampfireToken,
+		&i.DiscordUserCampfireTokenSync,
 	)
 	return i, err
 }

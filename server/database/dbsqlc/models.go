@@ -16,16 +16,3 @@ type CoverImage struct {
 	CoverData          []byte
 	CoverCreatedAt     pgtype.Timestamp
 }
-
-type DiscordUser struct {
-	DiscordUserID                string
-	DiscordUserUsername          string
-	DiscordUserDisplayName       string
-	DiscordUserAvatarUrl         string
-	DiscordUserImportedAt        pgtype.Timestamp
-	DiscordUserTimezone          pgtype.Text
-	DiscordUserLanguage          pgtype.Text
-	DiscordUserTimeFormat        pgtype.Text
-	DiscordUserCampfireToken     []byte
-	DiscordUserCampfireTokenSync bool
-}

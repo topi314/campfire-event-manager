@@ -70,6 +70,9 @@ func LoadConfig(path string) (Config, error) {
 	if cfg.Log.Format == "" {
 		cfg.Log.Format = LogFormatText
 	}
+	if _, err := cfg.Campfire.TokenSyncAESKey(); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 

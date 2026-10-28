@@ -25,9 +25,20 @@ FROM discord_users
 WHERE discord_user_id = $1
 `
 
-func (q *Queries) GetDiscordUser(ctx context.Context, discordUserID string) (DiscordUser, error) {
+type GetDiscordUserRow struct {
+	DiscordUserID          string
+	DiscordUserUsername    string
+	DiscordUserDisplayName string
+	DiscordUserAvatarUrl   string
+	DiscordUserImportedAt  pgtype.Timestamp
+	DiscordUserTimezone    pgtype.Text
+	DiscordUserLanguage    pgtype.Text
+	DiscordUserTimeFormat  pgtype.Text
+}
+
+func (q *Queries) GetDiscordUser(ctx context.Context, discordUserID string) (GetDiscordUserRow, error) {
 	row := q.db.QueryRow(ctx, getDiscordUser, discordUserID)
-	var i DiscordUser
+	var i GetDiscordUserRow
 	err := row.Scan(
 		&i.DiscordUserID,
 		&i.DiscordUserUsername,
@@ -39,6 +50,27 @@ func (q *Queries) GetDiscordUser(ctx context.Context, discordUserID string) (Dis
 		&i.DiscordUserTimeFormat,
 	)
 	return i, err
+}
+
+const setCampfireTokenSync = `-- name: SetCampfireTokenSync :execrows
+UPDATE discord_users
+SET discord_user_campfire_token = $2,
+    discord_user_campfire_token_sync = $3
+WHERE discord_user_id = $1
+`
+
+type SetCampfireTokenSyncParams struct {
+	DiscordUserID                string
+	DiscordUserCampfireToken     []byte
+	DiscordUserCampfireTokenSync bool
+}
+
+func (q *Queries) SetCampfireTokenSync(ctx context.Context, arg SetCampfireTokenSyncParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setCampfireTokenSync, arg.DiscordUserID, arg.DiscordUserCampfireToken, arg.DiscordUserCampfireTokenSync)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setDiscordUserLanguage = `-- name: SetDiscordUserLanguage :execrows

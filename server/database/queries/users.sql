@@ -26,6 +26,12 @@ UPDATE discord_users
 SET discord_user_time_format = $2
 WHERE discord_user_id = $1;
 
+-- name: SetCampfireTokenSync :execrows
+UPDATE discord_users
+SET discord_user_campfire_token = $2,
+    discord_user_campfire_token_sync = $3
+WHERE discord_user_id = $1;
+
 -- name: GetDiscordUser :one
 SELECT
     discord_user_id,

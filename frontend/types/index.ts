@@ -10,6 +10,10 @@ export type DiscordUser = {
   language?: string | null;
   /** Saved date/time format preset id. Null until this account has chosen one. */
   timeFormat?: string | null;
+  /** Account sync flag from /api/me. */
+  campfireTokenSync?: boolean;
+  /** Present when account sync is on. */
+  campfireToken?: string;
 };
 
 export type MeetupTemplate = {

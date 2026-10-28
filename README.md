@@ -12,7 +12,7 @@ Create Pokémon GO / Campfire meetups from reusable templates. Discord login gat
 ## Features
 
 1. Login with Discord (must be whitelisted or in a configured CA guild)
-2. Paste Campfire session JWT (browser localStorage only — not stored on the server)
+2. Paste Campfire session JWT (browser localStorage by default; optional encrypted account sync)
 3. Build meetup templates on the **Templates** page (title, placeholders, clock times, location, invites)
 4. **Publish** templates so others can find them under **Browse templates** (`/templates/browse`); add or customize a clone (always linked to the original); open publishers on **Profiles**
 5. Create a meetup at **`/create`**: pick template → optionally pick live event → fill placeholders → create (or save a **club draft** as a club admin and post later from **`/create/drafts`** — shared with other admins of that club). Edit a draft at **`/create/drafts/:id`**.
@@ -121,7 +121,7 @@ Open [campfire.scopely.com/discover](https://campfire.scopely.com/discover) and 
 2. Choose **Develop → Show Web Inspector** (or ⌥⌘I), then open the **Storage** tab
 3. Under **Local Storage**, select `https://campfire.scopely.com` and copy `CapacitorStorage.sessionToken` (`eyJ…`)
 
-The token is kept in the browser (`campfire-event-manager.sessionToken`) and attached to Campfire API calls. The server never persists it.
+The token is kept in the browser (`campfire-event-manager.sessionToken`) and attached to Campfire API calls. By default the server does not store it. Settings can turn on account sync once per Discord user; the server then keeps an encrypted copy and other signed-in browsers use it.
 
 ## Meetup create fields
 

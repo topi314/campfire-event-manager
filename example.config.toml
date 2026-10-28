@@ -34,6 +34,9 @@ url = "https://niantic-social-api.nianticlabs.com/graphql"
 max_retries = 3
 # Pokémon GO reality channel (for club listing context if needed)
 reality_channel_id = "da83476a-c4da-4312-a610-a4f2fc2c37f0"
+# Required. 32-byte AES key, standard base64. Used to encrypt synced Campfire tokens.
+# Generate with: openssl rand -base64 32
+token_sync_key = ""
 
 [basemaps]
 # Free key from https://carto.com/basemaps/apikey — without it CARTO tiles are watermarked.

@@ -26,7 +26,7 @@ const emit = defineEmits<{
 }>();
 
 const { api } = useApi();
-const { token, authHeaders, save, clearToken, tokenError, tokenSync, tokenSyncAvailable, setTokenSync } =
+const { token, authHeaders, save, clearToken, tokenError, tokenSync, setTokenSync } =
   useSessionToken();
 const {
   timeZone,
@@ -138,7 +138,7 @@ async function onSave() {
   setTimeFormat(isTimeFormatId(draftTimeFormat.value) ? draftTimeFormat.value : guessTimeFormat());
   saveError.value = "";
   const nextToken = draftToken.value.trim();
-  const syncChanged = !!user.value && tokenSyncAvailable.value && draftTokenSync.value !== tokenSync.value;
+  const syncChanged = !!user.value && draftTokenSync.value !== tokenSync.value;
   saving.value = true;
   try {
     if (syncChanged && tokenSync.value && !draftTokenSync.value) {
@@ -166,7 +166,15 @@ async function onSave() {
         saveError.value = "Could not save token.";
         return;
       }
-      await validateToken({ openSettingsOnFail: false });
+      const ok = await validateToken({ openSettingsOnFail: false });
+      if (!ok) {
+        saveError.value =
+          tokenError.value ||
+          "Campfire rejected this token. Copy a fresh sessionToken and try again.";
+        await nextTick();
+        draftToken.value = nextToken;
+        return;
+      }
     }
     if (syncChanged && draftTokenSync.value) {
       await setTokenSync(true);
@@ -325,14 +333,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           <input
             v-model="draftTokenSync"
             type="checkbox"
-            :disabled="!user || !tokenSyncAvailable || saving"
+            :disabled="!user || saving"
           />
           Sync token across browsers
         </label>
         <p v-if="!user" class="hint muted">Sign in with Discord to turn this on for your account.</p>
-        <p v-else-if="!tokenSyncAvailable" class="hint muted">
-          Token sync is not available on this server.
-        </p>
         <p v-else class="hint muted">
           Saved with the rest of these settings. Turning it on stores an encrypted copy on the
           server, and every other browser you are signed in with picks it up.

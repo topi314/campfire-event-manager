@@ -12,7 +12,9 @@ SELECT
     u.discord_user_imported_at,
     u.discord_user_timezone,
     u.discord_user_language,
-    u.discord_user_time_format
+    u.discord_user_time_format,
+    u.discord_user_campfire_token,
+    u.discord_user_campfire_token_sync
 FROM sessions s
 LEFT JOIN discord_users u ON s.session_user_id = u.discord_user_id
 WHERE s.session_id = $1;

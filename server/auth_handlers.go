@@ -232,16 +232,22 @@ func (s *Server) allowedAppRedirect(raw string) bool {
 
 func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.GetSession(r)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":          session.DiscordUser.ID,
-		"username":    session.DiscordUser.Username,
-		"displayName": session.DiscordUser.DisplayName,
-		"avatarUrl":   session.DiscordUser.AvatarURL,
-		"admin":       session.Session.Admin,
-		"timeZone":    session.DiscordUser.TimeZone,
-		"language":    session.DiscordUser.Language,
-		"timeFormat":  session.DiscordUser.TimeFormat,
-	})
+	syncOn, token := s.campfireTokenFromSession(r.Context(), session.Session)
+	body := map[string]any{
+		"id":                session.DiscordUser.ID,
+		"username":          session.DiscordUser.Username,
+		"displayName":       session.DiscordUser.DisplayName,
+		"avatarUrl":         session.DiscordUser.AvatarURL,
+		"admin":             session.Session.Admin,
+		"timeZone":          session.DiscordUser.TimeZone,
+		"language":          session.DiscordUser.Language,
+		"timeFormat":        session.DiscordUser.TimeFormat,
+		"campfireTokenSync": syncOn,
+	}
+	if syncOn {
+		body["campfireToken"] = token
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (s *Server) apiUpdateMe(w http.ResponseWriter, r *http.Request) {

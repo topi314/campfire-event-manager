@@ -94,7 +94,9 @@ onBeforeUnmount(() => {
               </p>
             </div>
             <button type="button" class="icon-close" aria-label="Close" @click="open = false">
-              ×
+              <svg class="icon-close-mark" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 4 L12 12 M12 4 L4 12" />
+              </svg>
             </button>
           </div>
 

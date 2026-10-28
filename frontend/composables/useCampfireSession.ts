@@ -12,7 +12,7 @@ export function isCommunityAmbassador(me: CampfireMe | null | undefined): boolea
 
 export function useCampfireSession() {
   const { api } = useApi();
-  const { token, authHeaders, invalidateToken, tokenError } = useSessionToken();
+  const { token, authHeaders, invalidateToken, clearToken, tokenError } = useSessionToken();
 
   const me = useState<CampfireMe | null>("campfireMe", () => null);
   const checking = useState("campfireTokenChecking", () => false);
@@ -64,13 +64,13 @@ export function useCampfireSession() {
         validatedForToken.value = null;
         const msg = e instanceof Error ? e.message : String(e || "");
         if (isCampfireTokenError(e)) {
+          const message =
+            "Your Campfire token is invalid or expired. Paste a fresh one in Settings.";
           if (opts?.openSettingsOnFail !== false) {
-            invalidateToken(
-              "Your Campfire token is invalid or expired. Paste a fresh one in Settings.",
-            );
+            invalidateToken(message);
           } else {
-            tokenError.value =
-              "Your Campfire token is invalid or expired. Paste a fresh one in Settings.";
+            clearToken();
+            tokenError.value = message;
           }
         } else {
           tokenError.value = msg || "Could not verify Campfire token.";

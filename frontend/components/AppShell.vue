@@ -102,23 +102,13 @@ watch(token, async (t, prev) => {
     </p>
     <p v-else-if="tokenError" class="error token-banner">
       {{ tokenError }}
-      <button
-        type="button"
-        class="primary"
-        style="margin-left: 0.5rem"
-        @click="openSettings({ focusToken: true })"
-      >
+      <button type="button" class="primary" @click="openSettings({ focusToken: true })">
         Open Settings
       </button>
     </p>
-    <p v-else-if="!token" class="muted">
-      Paste your Campfire session JWT in Settings to create meetups.
-      <button
-        type="button"
-        class="primary"
-        style="margin-left: 0.5rem"
-        @click="openSettings({ focusToken: true })"
-      >
+    <p v-else-if="!token" class="token-banner token-prompt">
+      Paste your Campfire session token in Settings to create meetups.
+      <button type="button" class="primary" @click="openSettings({ focusToken: true })">
         Open Settings
       </button>
     </p>

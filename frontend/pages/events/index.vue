@@ -149,7 +149,7 @@ async function bootstrap() {
     clubs.value = [];
     events.value = [];
     selectedClubId.value = "";
-    error.value = "Add your Campfire JWT in Settings to load club events.";
+    error.value = "Add your Campfire session token in Settings to load club events.";
     return;
   }
   error.value = "";
@@ -934,7 +934,7 @@ async function onConfirmDelete() {
         {{ eventTab === "past" ? "No past meetups in this club." : "No upcoming meetups in this club." }}
       </p>
       <p v-else-if="!token" class="muted">
-        Add your Campfire JWT in Settings to load events.
+        Add your Campfire session token in Settings to load events.
       </p>
     </div>
 
@@ -1001,7 +1001,9 @@ async function onConfirmDelete() {
             </p>
           </div>
           <button type="button" class="icon-close" aria-label="Close" @click="closeDetail">
-            ×
+            <svg class="icon-close-mark" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 4 L12 12 M12 4 L4 12" />
+            </svg>
           </button>
         </div>
 

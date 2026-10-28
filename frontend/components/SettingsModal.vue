@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Club } from "~/types";
+import { isCampfireTokenError, normalizeSessionToken } from "~/composables/useSessionToken";
 import {
   TEMPLATE_LANGUAGES,
   guessTemplateLanguage,
@@ -25,7 +26,8 @@ const emit = defineEmits<{
 }>();
 
 const { api } = useApi();
-const { token, authHeaders, save, clearToken, tokenError } = useSessionToken();
+const { token, authHeaders, save, clearToken, tokenError, tokenSync, tokenSyncAvailable, setTokenSync } =
+  useSessionToken();
 const {
   timeZone,
   setTimeZone,
@@ -66,6 +68,7 @@ const tokenVisible = ref(false);
 const saving = ref(false);
 const saveError = ref("");
 const tokenHowtoBrowser = ref<"chrome" | "edge" | "firefox" | "safari">("chrome");
+const draftTokenSync = ref(false);
 
 async function loadClubs() {
   if (!token.value) {
@@ -96,6 +99,7 @@ watch(
       preferredLanguage.value,
       bugHexeEnabled.value,
       timeFormat.value,
+      tokenSync.value,
     ] as const,
   ([open], prev) => {
     if (open && !prev?.[0]) tokenVisible.value = false;
@@ -106,6 +110,7 @@ watch(
     draftLanguage.value = preferredLanguage.value;
     draftBugHexe.value = bugHexeEnabled.value;
     draftTimeFormat.value = timeFormat.value;
+    draftTokenSync.value = tokenSync.value;
     zones.value = listTimeZones();
     if (!zones.value.includes(draftTz.value)) {
       zones.value = [...zones.value, draftTz.value].sort((a, b) => a.localeCompare(b));
@@ -133,23 +138,44 @@ async function onSave() {
   setTimeFormat(isTimeFormatId(draftTimeFormat.value) ? draftTimeFormat.value : guessTimeFormat());
   saveError.value = "";
   const nextToken = draftToken.value.trim();
-  if (nextToken) {
-    saving.value = true;
-    try {
+  const syncChanged = !!user.value && tokenSyncAvailable.value && draftTokenSync.value !== tokenSync.value;
+  saving.value = true;
+  try {
+    if (syncChanged && tokenSync.value && !draftTokenSync.value) {
+      await setTokenSync(false);
+    }
+    if (nextToken) {
+      const cleaned = normalizeSessionToken(nextToken);
+      try {
+        const checked = await api<{ id?: string }>("/api/campfire/me", {
+          headers: { Authorization: `Bearer ${cleaned}` },
+        });
+        if (!checked?.id) throw new Error("invalid Campfire token");
+      } catch (e: any) {
+        if (isCampfireTokenError(e) && normalizeSessionToken(token.value) === cleaned) {
+          clearToken();
+          await nextTick();
+          draftToken.value = nextToken;
+        }
+        saveError.value =
+          e?.message ||
+          "Campfire rejected this token. Copy a fresh sessionToken and try again.";
+        return;
+      }
       if (!save(nextToken)) {
         saveError.value = "Could not save token.";
         return;
       }
-      const ok = await validateToken({ openSettingsOnFail: false });
-      if (!ok) {
-        saveError.value =
-          tokenError.value ||
-          "Campfire rejected this token. Copy a fresh sessionToken and try again.";
-        return;
-      }
-    } finally {
-      saving.value = false;
+      await validateToken({ openSettingsOnFail: false });
     }
+    if (syncChanged && draftTokenSync.value) {
+      await setTokenSync(true);
+    }
+  } catch (e: any) {
+    saveError.value = e?.message || "Could not update token sync.";
+    return;
+  } finally {
+    saving.value = false;
   }
   emit("close");
   toast.success("Settings saved");
@@ -193,7 +219,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
       <div class="settings-header">
         <h2 id="settings-title">Settings</h2>
         <button type="button" class="icon-close" aria-label="Close" @click="emit('close')">
-          ×
+          <svg class="icon-close-mark" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4 4 L12 12 M12 4 L4 12" />
+          </svg>
         </button>
       </div>
 
@@ -290,14 +318,30 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
       >
         <h3>Campfire session token</h3>
         <p class="muted">
-          Required to load clubs, live events, and create meetups. Stored only in this browser
-          under <code>campfire-event-manager.sessionToken</code>.
+          Required to load clubs, live events, and create meetups. Kept in this browser under
+          <code>campfire-event-manager.sessionToken</code>.
+        </p>
+        <label class="token-sync">
+          <input
+            v-model="draftTokenSync"
+            type="checkbox"
+            :disabled="!user || !tokenSyncAvailable || saving"
+          />
+          Sync token across browsers
+        </label>
+        <p v-if="!user" class="hint muted">Sign in with Discord to turn this on for your account.</p>
+        <p v-else-if="!tokenSyncAvailable" class="hint muted">
+          Token sync is not available on this server.
+        </p>
+        <p v-else class="hint muted">
+          Saved with the rest of these settings. Turning it on stores an encrypted copy on the
+          server, and every other browser you are signed in with picks it up.
         </p>
         <p v-if="focusToken || tokenError || saveError" class="error" style="margin: 0">
           {{
             saveError ||
             tokenError ||
-            "Your Campfire token is missing or no longer valid. Paste a fresh JWT below."
+            "Your Campfire token is missing or no longer valid. Paste a fresh session token below."
           }}
         </p>
         <details class="token-howto">
@@ -514,7 +558,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
         </details>
         <div class="field" style="margin-bottom: 0">
           <div class="token-label-row">
-            <label for="settings-jwt">JWT</label>
+            <label for="settings-jwt">Session token</label>
             <button
               type="button"
               class="token-reveal"
@@ -533,6 +577,14 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
             placeholder="eyJ…"
             :class="{ 'token-masked': !tokenVisible }"
           />
+          <button
+            type="button"
+            class="token-clear"
+            :disabled="(!token && !draftToken) || saving"
+            @click="onClearToken"
+          >
+            Clear token
+          </button>
         </div>
         <p v-if="checking || saving" class="muted" style="margin: 0">Checking token with Campfire…</p>
         <p v-else-if="token && me" class="success" style="margin: 0">
@@ -540,7 +592,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
           <span v-if="isCA"> · Community Ambassador</span>
         </p>
         <p v-else-if="token" class="muted" style="margin: 0">A token is saved in this browser.</p>
-        <p v-else class="muted" style="margin: 0">No token saved yet.</p>
       </div>
 
       <div v-if="showBugHexeSetting" class="settings-section">
@@ -556,9 +607,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
       </div>
 
       <div class="modal-actions">
-        <button type="button" :disabled="(!token && !draftToken) || saving" @click="onClearToken">
-          Clear token
-        </button>
         <button type="button" :disabled="saving" @click="emit('close')">Cancel</button>
         <button type="button" class="primary" :disabled="saving" @click="onSave">
           {{ saving ? "Saving…" : "Save" }}
@@ -633,6 +681,19 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   cursor: pointer;
 }
 .bug-hexe-toggle input {
+  width: auto;
+  margin: 0;
+}
+.token-sync {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.75rem 0 0.35rem;
+  color: var(--text);
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+.token-sync input {
   width: auto;
   margin: 0;
 }
@@ -789,6 +850,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 }
 .token-label-row label {
   margin-bottom: 0;
+}
+.token-clear {
+  display: block;
+  width: fit-content;
+  margin-top: 0.45rem;
+  margin-left: auto;
 }
 .token-reveal {
   padding: 0.15rem 0.55rem;

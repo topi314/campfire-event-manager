@@ -41,7 +41,7 @@ async function load() {
   if (!token.value) {
     drafts.value = [];
     selectedIds.value = new Set();
-    error.value = "Add your Campfire JWT in Settings to load club drafts.";
+    error.value = "Add your Campfire session token in Settings to load club drafts.";
     return;
   }
   try {

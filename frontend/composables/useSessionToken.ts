@@ -26,28 +26,100 @@ function writeStoredToken(value: string) {
   }
 }
 
+type CampfireTokenSync = { sync: boolean; token: string };
+
 export function useSessionToken() {
   const token = useState("sessionToken", () => readStoredToken());
   const settingsOpen = useState("settingsOpen", () => false);
   /** When true, settings should highlight the JWT section (outdated/missing token). */
   const focusToken = useState("settingsFocusToken", () => false);
   const tokenError = useState<string | null>("campfireTokenError", () => null);
+  /** Account setting from Postgres. Not stored in localStorage. */
+  const tokenSync = useState("campfireTokenSync", () => false);
+  const tokenSyncAvailable = useState("campfireTokenSyncAvailable", () => false);
+  const { api } = useApi();
+  const { user, loaded } = useAuth();
+
+  let pushChain: Promise<void> = Promise.resolve();
+
+  function applyLocal(next: string) {
+    token.value = next;
+    writeStoredToken(next);
+  }
+
+  function pushAccountToken() {
+    if (!tokenSync.value || !tokenSyncAvailable.value) return;
+    const snapshot = token.value;
+    pushChain = pushChain
+      .then(async () => {
+        await api<CampfireTokenSync>("/api/me/campfire-token", {
+          method: "PUT",
+          body: JSON.stringify({ sync: true, token: snapshot }),
+        });
+      })
+      .catch(() => {
+        tokenError.value = "Could not sync the Campfire token to your account.";
+      });
+  }
+
+  async function refreshTokenSync() {
+    if (!loaded.value || !user.value) {
+      tokenSync.value = false;
+      tokenSyncAvailable.value = false;
+      return;
+    }
+    try {
+      const remote = await api<CampfireTokenSync>("/api/me/campfire-token");
+      tokenSyncAvailable.value = true;
+      tokenSync.value = !!remote.sync;
+      if (!remote.sync) return;
+      if (remote.token) {
+        applyLocal(normalizeSessionToken(remote.token));
+        tokenError.value = null;
+        return;
+      }
+      if (token.value) pushAccountToken();
+    } catch {
+      tokenSync.value = false;
+      tokenSyncAvailable.value = false;
+    }
+  }
 
   onMounted(() => {
     const saved = readStoredToken();
     if (saved && saved !== token.value) {
       token.value = saved;
     }
+    void refreshTokenSync();
+  });
+
+  watch([user, loaded], () => {
+    void refreshTokenSync();
   });
 
   function save(next: string) {
     const cleaned = normalizeSessionToken(next);
     if (!cleaned) return false;
-    token.value = cleaned;
-    writeStoredToken(cleaned);
+    applyLocal(cleaned);
     tokenError.value = null;
     focusToken.value = false;
+    pushAccountToken();
     return true;
+  }
+
+  async function setTokenSync(enabled: boolean) {
+    const body: CampfireTokenSync = {
+      sync: enabled,
+      token: enabled ? token.value : "",
+    };
+    const saved = await api<CampfireTokenSync>("/api/me/campfire-token", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    tokenSync.value = !!saved.sync;
+    tokenSyncAvailable.value = true;
+    if (!saved.sync) return;
+    if (saved.token) applyLocal(normalizeSessionToken(saved.token));
   }
 
   function openSettings(opts?: { focusToken?: boolean }) {
@@ -61,14 +133,14 @@ export function useSessionToken() {
   }
 
   function clearToken() {
-    token.value = "";
-    writeStoredToken("");
+    applyLocal("");
     tokenError.value = null;
+    pushAccountToken();
   }
 
   function invalidateToken(message?: string) {
-    token.value = "";
-    writeStoredToken("");
+    applyLocal("");
+    pushAccountToken();
     tokenError.value =
       message?.trim() ||
       "Your Campfire token is invalid or expired. Paste a fresh one in Settings.";
@@ -85,7 +157,10 @@ export function useSessionToken() {
     settingsOpen,
     focusToken,
     tokenError,
+    tokenSync,
+    tokenSyncAvailable,
     save,
+    setTokenSync,
     openSettings,
     closeSettings,
     clearToken,

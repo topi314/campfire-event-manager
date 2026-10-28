@@ -80,6 +80,19 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.icon-close-mark {
+  width: 0.9rem;
+  height: 0.9rem;
+  display: block;
+}
+
+.icon-close-mark path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
 input,
 textarea,
 select {
@@ -330,7 +343,21 @@ label {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem 0;
+  gap: 0.35rem 0.75rem;
+}
+
+.token-banner .primary {
+  margin-left: auto;
+}
+
+.token-prompt {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  color: #ffe7a3;
+  background: color-mix(in srgb, #e6b325 18%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, #e6b325 70%, var(--border));
+  border-radius: var(--radius);
+  font-size: 1rem;
 }
 
 @media (max-width: 520px) {

@@ -31,7 +31,13 @@ export default defineNuxtConfig({
       },
     },
     optimizeDeps: {
-      include: ["leaflet"],
+      include: [
+        "leaflet",
+        "@codemirror/state",
+        "@codemirror/view",
+        "@codemirror/commands",
+        "@codemirror/autocomplete",
+      ],
     },
   },
 });

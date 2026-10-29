@@ -921,7 +921,6 @@ function onSubmit() {
   min-height: 12rem;
 }
 .field-details :deep(.ph-field.multiline .ph-input),
-.field-details :deep(.ph-field.multiline .ph-mirror),
 .field-details textarea {
   flex: 1 1 auto;
   min-height: 12rem;

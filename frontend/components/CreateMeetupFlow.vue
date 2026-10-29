@@ -1982,6 +1982,7 @@ function templateOptionLabel(t: MeetupTemplate) {
               :required="textViewMode === 'edit'"
               :readonly="textViewMode === 'preview'"
               :extra-placeholders="placeholderDefs"
+              :event-pokemon-values="eventPokemonResolved"
               :count="resolvedNameLen"
               :max="MAX_MEETUP_TITLE"
               @update:model-value="onTitleInput"
@@ -1997,6 +1998,7 @@ function templateOptionLabel(t: MeetupTemplate) {
               :rows="10"
               :readonly="textViewMode === 'preview'"
               :extra-placeholders="placeholderDefs"
+              :event-pokemon-values="eventPokemonResolved"
               :count="resolvedDetailsLen"
               @update:model-value="onDetailsInput"
             />
@@ -2332,7 +2334,6 @@ function templateOptionLabel(t: MeetupTemplate) {
   min-height: 12rem;
 }
 .field-details :deep(.ph-field.multiline .ph-input),
-.field-details :deep(.ph-field.multiline .ph-mirror),
 .field-details textarea {
   flex: 1 1 auto;
   min-height: 12rem;
@@ -2409,7 +2410,6 @@ function templateOptionLabel(t: MeetupTemplate) {
     min-height: 14rem;
   }
   .field-details :deep(.ph-field.multiline .ph-input),
-  .field-details :deep(.ph-field.multiline .ph-mirror),
   .field-details textarea {
     min-height: 14rem;
   }

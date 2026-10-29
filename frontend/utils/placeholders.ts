@@ -1,4 +1,5 @@
 import { layoutPieces } from "~/utils/datetime";
+import { POKEMON_NAME_LANGUAGES, templateLanguageLabel } from "~/utils/languages";
 import { applyLetterStyle, findStyledTokens } from "~/utils/unicodeStyle";
 import { isTimeFormatId, TIME_FORMAT_IDS, type TimeFormatId } from "~/utils/timeFormats";
 
@@ -656,6 +657,199 @@ export function applyPlaceholdersToPayload<T>(payload: T, values: Record<string,
     return v;
   }
   return walk(payload) as T;
+}
+
+type PlaceholderSuggestion = { key: string; label: string };
+
+type EventPokemonIndex = { index: number; name: string };
+
+type SuggestionQuery =
+  | { kind: "prefix"; text: string }
+  | { kind: "name-lang"; langPrefix: string }
+  | {
+      kind: "indexed";
+      base: string;
+      indexDigits: string;
+      closed: boolean;
+      langPrefix: string | null;
+    };
+
+const LANG_PREFIX_RE = /^[a-z0-9-]*$/;
+const INDEX_DIGITS_RE = /^[1-9][0-9]*$/;
+
+const POKEMON_LANG_OPTIONS = POKEMON_NAME_LANGUAGES.map((code) => ({
+  code,
+  label: templateLanguageLabel(code),
+})).sort((a, b) => a.label.localeCompare(b.label, "en"));
+
+/**
+ * Indexes that resolve to a value, keyed by normalized event-Pokémon base.
+ * Empty slots are omitted. An unpinned name wins over a language-pinned one.
+ */
+function eventPokemonIndexesFromValues(
+  values: Record<string, string>,
+): Record<string, EventPokemonIndex[]> {
+  const byBase = new Map<string, Map<number, { name: string; pinned: boolean }>>();
+  for (const [key, raw] of Object.entries(values)) {
+    const name = raw.trim();
+    if (!name) continue;
+    const { rest, lang } = splitPlaceholderLang(key);
+    const { base, index } = splitPlaceholderIndex(rest);
+    if (index == null || index < 1 || !isEventPokemonBaseKey(base)) continue;
+    const norm = normalizePlaceholderKey(base);
+    let slots = byBase.get(norm);
+    if (!slots) {
+      slots = new Map();
+      byBase.set(norm, slots);
+    }
+    const pinned = lang != null;
+    const prev = slots.get(index);
+    if (!prev || (prev.pinned && !pinned)) slots.set(index, { name, pinned });
+  }
+  const out: Record<string, EventPokemonIndex[]> = {};
+  for (const [base, slots] of byBase) {
+    out[base] = [...slots.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([index, slot]) => ({ index, name: slot.name }));
+  }
+  return out;
+}
+
+function parseSuggestionQuery(query: string): SuggestionQuery | null {
+  const q = query.trim().toLowerCase();
+  const bracket = q.indexOf("[");
+  if (bracket < 0) {
+    const colon = q.indexOf(":");
+    if (colon < 0) return { kind: "prefix", text: q };
+    const langPrefix = q.slice(colon + 1);
+    if (q.slice(0, colon) !== "eventpokemon" || !LANG_PREFIX_RE.test(langPrefix)) return null;
+    return { kind: "name-lang", langPrefix };
+  }
+
+  const after = q.slice(bracket + 1);
+  const close = after.indexOf("]");
+  const indexPart = close >= 0 ? after.slice(0, close) : after;
+  const langPrefix = close >= 0 && after[close + 1] === ":" ? after.slice(close + 2) : null;
+  if (langPrefix != null && !LANG_PREFIX_RE.test(langPrefix)) return null;
+  return {
+    kind: "indexed",
+    base: q.slice(0, bracket),
+    indexDigits: /^[0-9]*/.exec(indexPart)?.[0] ?? "",
+    closed: close >= 0,
+    langPrefix,
+  };
+}
+
+function languageSuggestions(
+  head: string,
+  label: string,
+  langPrefix: string,
+  values: Record<string, string> | null | undefined,
+): PlaceholderSuggestion[] {
+  const prefix = langPrefix.toLowerCase();
+  const out: PlaceholderSuggestion[] = [];
+  for (const lang of POKEMON_LANG_OPTIONS) {
+    if (prefix && !lang.code.startsWith(prefix) && !lang.label.toLowerCase().startsWith(prefix)) {
+      continue;
+    }
+    const key = `${head}:${lang.code}`;
+    const resolved = values ? lookupPlaceholderValue(values, key)?.trim() ?? "" : "";
+    out.push({
+      key,
+      label: resolved ? `${label} · ${lang.label} · ${resolved}` : `${label} · ${lang.label}`,
+    });
+  }
+  return out;
+}
+
+/** Null when this index is not a name slot on the current event. */
+function languagePin(
+  item: PlaceholderSuggestion,
+  indexDigits: string,
+  indexes: readonly EventPokemonIndex[],
+  indexesKnown: boolean,
+): { head: string; label: string } | null {
+  if (!isEventPokemonNameBase(item.key) || !INDEX_DIGITS_RE.test(indexDigits)) return null;
+  const n = Number(indexDigits);
+  if (indexesKnown && !indexes.some((slot) => slot.index === n)) return null;
+  return { head: `${item.key}[${n}]`, label: `${item.label || item.key} (${n})` };
+}
+
+function indexSuggestions(
+  item: PlaceholderSuggestion,
+  indexDigits: string,
+  indexes: readonly EventPokemonIndex[],
+): PlaceholderSuggestion[] {
+  const label = item.label || item.key;
+  return indexes
+    .filter((slot) => !indexDigits || String(slot.index).startsWith(indexDigits))
+    .map((slot) => ({
+      key: `${item.key}[${slot.index}]`,
+      label: slot.name ? `${label} (${slot.index}) · ${slot.name}` : `${label} (${slot.index})`,
+    }));
+}
+
+function catalogItem(
+  catalog: readonly PlaceholderSuggestion[],
+  base: string,
+  accept: (key: string) => boolean,
+): PlaceholderSuggestion | undefined {
+  return catalog.find((item) => accept(item.key) && item.key.toLowerCase() === base);
+}
+
+/**
+ * Suggestions for the placeholder menu.
+ * Pass resolved event-Pokémon values so indexes follow slots that exist.
+ * `null` means no event is selected yet: language pins are still offered, indexes are not.
+ */
+export function filterPlaceholderSuggestions(
+  catalog: readonly PlaceholderSuggestion[],
+  query: string,
+  eventPokemonValues?: Record<string, string> | null,
+): PlaceholderSuggestion[] {
+  const parsed = parseSuggestionQuery(query);
+  if (!parsed) return [];
+  const indexesKnown = eventPokemonValues != null;
+  const indexesByBase = indexesKnown ? eventPokemonIndexesFromValues(eventPokemonValues) : null;
+  const indexesFor = (key: string) => indexesByBase?.[normalizePlaceholderKey(key)] ?? [];
+
+  if (parsed.kind === "name-lang") {
+    const item = catalog.find((entry) => isEventPokemonNameBase(entry.key));
+    if (!item) return [];
+    return languageSuggestions(item.key, item.label || item.key, parsed.langPrefix, eventPokemonValues);
+  }
+
+  if (parsed.kind === "prefix") {
+    const out: PlaceholderSuggestion[] = [];
+    for (const item of catalog) {
+      const key = item.key.toLowerCase();
+      if (parsed.text && !key.startsWith(parsed.text)) continue;
+      out.push(item);
+      if (!parsed.text || key !== parsed.text) continue;
+      if (isEventPokemonBaseKey(item.key)) {
+        out.push(...indexSuggestions(item, "", indexesFor(item.key)));
+      }
+      if (isEventPokemonNameBase(item.key)) {
+        out.push(...languageSuggestions(item.key, item.label || item.key, "", eventPokemonValues));
+      }
+    }
+    return out;
+  }
+
+  const item = catalogItem(catalog, parsed.base, isEventPokemonBaseKey);
+  if (!item) return [];
+  const indexes = indexesFor(item.key);
+  if (parsed.langPrefix != null) {
+    const pin = languagePin(item, parsed.indexDigits, indexes, indexesKnown);
+    return pin
+      ? languageSuggestions(pin.head, pin.label, parsed.langPrefix, eventPokemonValues)
+      : [];
+  }
+  const out = indexSuggestions(item, parsed.indexDigits, indexes);
+  if (!parsed.closed) return out;
+  const pin = languagePin(item, parsed.indexDigits, indexes, indexesKnown);
+  if (pin) out.push(...languageSuggestions(pin.head, pin.label, "", eventPokemonValues));
+  return out;
 }
 
 export function humanizePlaceholderKey(key: string): string {

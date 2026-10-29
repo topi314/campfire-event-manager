@@ -1,6 +1,43 @@
 <script setup lang="ts">
 import {
+  Annotation,
+  Compartment,
+  EditorSelection,
+  EditorState,
+  Prec,
+  RangeSetBuilder,
+  Transaction,
+  type Extension,
+  type TransactionSpec,
+} from "@codemirror/state";
+import {
+  Decoration,
+  EditorView,
+  keymap,
+  placeholder as cmPlaceholder,
+  drawSelection,
+  ViewPlugin,
+  type ViewUpdate,
+} from "@codemirror/view";
+import {
+  acceptCompletion,
+  autocompletion,
+  closeCompletion,
+  completionStatus,
+  CompletionContext,
+  startCompletion,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
+import {
+  history,
+  insertNewline,
+  redo,
+  standardKeymap,
+  undo,
+} from "@codemirror/commands";
+import {
   BUILTIN_PLACEHOLDERS,
+  filterPlaceholderSuggestions,
   isBuiltinPlaceholder,
   normalizePlaceholderKey,
 } from "~/utils/placeholders";
@@ -27,6 +64,11 @@ const props = withDefaults(
     readonly?: boolean;
     /** Custom {{key}} tokens offered in addition to built-ins. */
     extraPlaceholders?: { key: string; label?: string }[];
+    /**
+     * Resolved event-Pokémon values from the selected event.
+     * Null on a template, where no species list exists yet.
+     */
+    eventPokemonValues?: Record<string, string> | null;
     /** Character count shown in the field footer. */
     count?: number | null;
     /** When set, the footer shows count / max and marks counts over the limit. */
@@ -39,6 +81,7 @@ const props = withDefaults(
     disabled: false,
     readonly: false,
     extraPlaceholders: () => [],
+    eventPokemonValues: null,
     count: null,
     max: null,
   },
@@ -48,17 +91,15 @@ const emit = defineEmits<{
   "update:modelValue": [value: string];
 }>();
 
-const inputRef = ref<HTMLInputElement | HTMLTextAreaElement | null>(null);
-const mirrorRef = ref<HTMLElement | null>(null);
-const wrapRef = ref<HTMLElement | null>(null);
+const hostRef = ref<HTMLElement | null>(null);
+let editor: EditorView | null = null;
+let fillObserver: ResizeObserver | null = null;
+let composeActive = false;
+let composeBase: string | null = null;
 
-const display = computed(() => props.modelValue ?? "");
-const menuOpen = ref(false);
-const browseOpen = ref(false);
-const menuIndex = ref(0);
-const activeQuery = ref("");
-const replaceStart = ref(0);
-const replaceEnd = ref(0);
+const skipStyle = Annotation.define<boolean>();
+const editableComp = new Compartment();
+const placeholderComp = new Compartment();
 
 const typing = reactive({
   style: "plain" as LetterStyle,
@@ -67,7 +108,7 @@ const typing = reactive({
 });
 /** Set while a range is selected, so the toolbar reflects that range. */
 const selectionState = ref<FormatState | null>(null);
-const composing = ref(false);
+const menuOpen = ref(false);
 
 const pressed = computed<FormatState>(() => {
   if (selectionState.value) return selectionState.value;
@@ -90,15 +131,6 @@ const emojiShortcuts = [
   { id: "chromeos", name: "ChromeOS", keys: "Ctrl + Shift + Space" },
 ] as const;
 
-onMounted(() => {
-  const ua = navigator.userAgent || "";
-  const platform = navigator.platform || "";
-  if (/CrOS/.test(ua)) os.value = "chromeos";
-  else if (/Win/.test(platform)) os.value = "windows";
-  else if (/Mac/.test(platform)) os.value = "mac";
-  else if (/Linux|X11/.test(platform)) os.value = "linux";
-});
-
 const actions: { id: FormatAction; label: string; title: string }[] = [
   { id: "bold", label: "B", title: "Bold (Ctrl+B)" },
   { id: "italic", label: "I", title: "Italic (Ctrl+I)" },
@@ -106,31 +138,6 @@ const actions: { id: FormatAction; label: string; title: string }[] = [
   { id: "underline", label: "U", title: "Underline (Ctrl+U)" },
   { id: "strike", label: "S", title: "Strikethrough (Ctrl+K)" },
 ];
-
-function escapeHtml(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-const highlightedHtml = computed(() => {
-  const raw = display.value;
-  if (!raw) return "&nbsp;";
-  const tokens = findStyledTokens(raw);
-  let out = "";
-  let last = 0;
-  for (const tok of tokens) {
-    out += escapeHtml(raw.slice(last, tok.start));
-    const cls = isBuiltinPlaceholder(tok.key) ? "tok-builtin" : "tok-custom";
-    out += `<mark class="${cls}">${escapeHtml(raw.slice(tok.start, tok.end))}</mark>`;
-    last = tok.end;
-  }
-  out += escapeHtml(raw.slice(last));
-  if (raw.endsWith("\n")) out += "&nbsp;";
-  return out || "&nbsp;";
-});
 
 const catalog = computed(() => {
   const seen = new Set<string>();
@@ -152,13 +159,10 @@ const catalog = computed(() => {
   return list;
 });
 
-const suggestions = computed(() => {
-  const q = activeQuery.value.toLowerCase();
-  if (!q) return catalog.value;
-  return catalog.value.filter((item) => item.key.toLowerCase().startsWith(q));
-});
-
-const menuItems = computed(() => (browseOpen.value ? catalog.value : suggestions.value));
+function styleTyped(text: string): string {
+  if (typing.style === "plain" && !typing.underline && !typing.strike) return text;
+  return applyLetterStyle(text, typing.style, typing.underline, typing.strike);
+}
 
 function insertedText(prev: string, next: string): { start: number; text: string } | null {
   let start = 0;
@@ -174,71 +178,6 @@ function insertedText(prev: string, next: string): { start: number; text: string
   return { start, text: next.slice(start, endNext) };
 }
 
-function styleTyped(text: string): string {
-  if (typing.style === "plain" && !typing.underline && !typing.strike) return text;
-  return applyLetterStyle(text, typing.style, typing.underline, typing.strike);
-}
-
-function onInput(e: Event) {
-  const el = e.target as HTMLInputElement | HTMLTextAreaElement;
-  const raw = el.value;
-  if (composing.value) {
-    emit("update:modelValue", raw);
-    refreshCaret(el);
-    return;
-  }
-  const change = insertedText(props.modelValue ?? "", raw);
-  if (!change) {
-    emit("update:modelValue", raw);
-    refreshCaret(el);
-    return;
-  }
-  const styled = styleTyped(change.text);
-  if (styled === change.text) {
-    emit("update:modelValue", raw);
-    refreshCaret(el);
-    return;
-  }
-  const updated = raw.slice(0, change.start) + styled + raw.slice(change.start + change.text.length);
-  const caret = change.start + styled.length;
-  emit("update:modelValue", updated);
-  nextTick(() => {
-    el.value = updated;
-    el.setSelectionRange(caret, caret);
-    refreshCaret(el);
-  });
-}
-
-function onCompositionStart() {
-  composing.value = true;
-}
-
-function onCompositionEnd(e: CompositionEvent) {
-  composing.value = false;
-  const el = e.target as HTMLInputElement | HTMLTextAreaElement;
-  const data = e.data ?? "";
-  if (!data) return;
-  const styled = styleTyped(data);
-  if (styled === data) return;
-  const end = el.selectionEnd ?? el.value.length;
-  const start = Math.max(0, end - data.length);
-  const updated = el.value.slice(0, start) + styled + el.value.slice(end);
-  const caret = start + styled.length;
-  emit("update:modelValue", updated);
-  nextTick(() => {
-    el.focus();
-    el.setSelectionRange(caret, caret);
-    refreshCaret(el);
-  });
-}
-
-function syncScroll() {
-  if (!inputRef.value || !mirrorRef.value) return;
-  mirrorRef.value.scrollTop = inputRef.value.scrollTop;
-  mirrorRef.value.scrollLeft = inputRef.value.scrollLeft;
-  if (menuOpen.value || browseOpen.value) placeMenu();
-}
-
 function typingFromState(state: FormatState) {
   if (state.mono) typing.style = "mono";
   else if (state.bold && state.italic) typing.style = "boldItalic";
@@ -249,303 +188,418 @@ function typingFromState(state: FormatState) {
   typing.strike = state.strike;
 }
 
-const menuPos = ref({ top: 0, left: 0 });
-const menuRef = ref<HTMLElement | null>(null);
-
-function placeMenu() {
-  const el = inputRef.value;
-  const wrap = wrapRef.value;
-  if (!el || !wrap) return;
-  const start = el.selectionStart ?? 0;
-  const cs = getComputedStyle(el);
-  const mirror = document.createElement("div");
-  const copy = [
-    "fontFamily",
-    "fontSize",
-    "fontWeight",
-    "fontStyle",
-    "letterSpacing",
-    "lineHeight",
-    "paddingTop",
-    "paddingRight",
-    "paddingBottom",
-    "paddingLeft",
-    "borderTopWidth",
-    "borderRightWidth",
-    "borderBottomWidth",
-    "borderLeftWidth",
-    "boxSizing",
-    "whiteSpace",
-    "wordBreak",
-    "overflowWrap",
-  ] as const;
-  mirror.style.position = "fixed";
-  mirror.style.visibility = "hidden";
-  mirror.style.pointerEvents = "none";
-  mirror.style.whiteSpace = cs.whiteSpace;
-  mirror.style.width = `${el.clientWidth}px`;
-  for (const key of copy) mirror.style[key] = cs[key];
-  mirror.textContent = el.value.slice(0, start);
-  const mark = document.createElement("span");
-  mark.textContent = "\u200b";
-  mirror.appendChild(mark);
-  document.body.appendChild(mirror);
-  const elRect = el.getBoundingClientRect();
-  const wrapRect = wrap.getBoundingClientRect();
-  const top = elRect.top - wrapRect.top + mark.offsetTop - el.scrollTop + mark.offsetHeight;
-  let left = elRect.left - wrapRect.left + mark.offsetLeft - el.scrollLeft;
-  mirror.remove();
-  const maxLeft = Math.max(8, wrap.clientWidth - 240);
-  left = Math.min(Math.max(8, left), maxLeft);
-  menuPos.value = { top: Math.max(0, top), left };
+function locked() {
+  return props.readonly || props.disabled;
 }
 
-function refreshCaret(el: HTMLInputElement | HTMLTextAreaElement | null) {
-  if (!el || props.readonly || props.disabled) {
-    menuOpen.value = false;
-    selectionState.value = null;
-    return;
-  }
-  const start = el.selectionStart ?? 0;
-  const end = el.selectionEnd ?? start;
-  const value = el.value;
-  selectionState.value = start === end ? null : formatState(value.slice(start, end));
-  const range = autocompleteRange(value, end);
-  if (!range || start !== end) {
-    menuOpen.value = false;
-    return;
-  }
-  const same =
-    menuOpen.value &&
-    activeQuery.value === range.query &&
-    replaceStart.value === range.start &&
-    replaceEnd.value === range.end;
-  activeQuery.value = range.query;
-  replaceStart.value = range.start;
-  replaceEnd.value = range.end;
-  if (browseOpen.value) return;
-  menuOpen.value = true;
-  if (!same) menuIndex.value = 0;
-  placeMenu();
+function placeholderCompletions(context: CompletionContext): CompletionResult | null {
+  if (locked()) return null;
+  const range = autocompleteRange(context.state.doc.toString(), context.pos);
+  if (!range && !context.explicit) return null;
+  const items = filterPlaceholderSuggestions(
+    catalog.value,
+    range?.query ?? "",
+    props.eventPokemonValues,
+  );
+  if (!items.length) return null;
+  const from = range ? range.start : context.state.selection.main.from;
+  const to = range ? range.end : context.state.selection.main.to;
+  const result: CompletionResult = {
+    from,
+    to,
+    filter: false,
+    options: items.map((item) => ({
+      label: `{{${item.key}}}`,
+      detail: item.label && item.label !== item.key ? item.label : undefined,
+      apply(view, _completion, fromPos, toPos) {
+        const insert = styleTyped(`{{${item.key}}}`);
+        view.dispatch({
+          changes: { from: fromPos, to: toPos, insert },
+          selection: { anchor: fromPos + insert.length },
+          annotations: skipStyle.of(true),
+          userEvent: "input.complete",
+        });
+      },
+    })),
+  };
+  const explicit = context.explicit;
+  result.update = (_current, _from, _to, ctx) => {
+    const next = explicit ? new CompletionContext(ctx.state, ctx.pos, true, ctx.view) : ctx;
+    return placeholderCompletions(next);
+  };
+  return result;
+}
+
+function rewriteTransaction(tr: Transaction): Transaction | TransactionSpec {
+  if (tr.annotation(skipStyle) || !tr.docChanged || composeActive) return tr;
+
+  const styleInput =
+    !locked() && (tr.isUserEvent("input.type") || tr.isUserEvent("input.paste"));
+  const stripNewlines = !props.multiline;
+  const plainTyping = typing.style === "plain" && !typing.underline && !typing.strike;
+  if (!stripNewlines && (!styleInput || plainTyping)) return tr;
+
+  const parts: { from: number; to: number; insert: string }[] = [];
+  const spans: { fromB: number; toB: number; growth: number }[] = [];
+  let changed = false;
+  tr.changes.iterChanges((from, to, fromB, toB, inserted) => {
+    let text = inserted.toString();
+    if (stripNewlines && /[\r\n]/.test(text)) text = text.replace(/\r?\n/g, " ");
+    const next = styleInput && !plainTyping ? styleTyped(text) : text;
+    if (next !== inserted.toString()) changed = true;
+    parts.push({ from, to, insert: next });
+    spans.push({ fromB, toB, growth: next.length - inserted.length });
+  });
+  if (!changed) return tr;
+
+  let newLen = tr.startState.doc.length;
+  for (const part of parts) newLen += part.insert.length - (part.to - part.from);
+  const mapPos = (pos: number) => {
+    let shift = 0;
+    for (const span of spans) {
+      if (pos <= span.fromB) return pos + shift;
+      if (pos < span.toB) return span.toB + shift + span.growth;
+      shift += span.growth;
+    }
+    return pos + shift;
+  };
+  const clamp = (pos: number) => Math.max(0, Math.min(newLen, mapPos(pos)));
+
+  return {
+    changes: parts,
+    selection: EditorSelection.create(
+      tr.selection.ranges.map((range) =>
+        EditorSelection.range(clamp(range.anchor), clamp(range.head)),
+      ),
+      tr.selection.mainIndex,
+    ),
+    annotations: tr.annotations.concat(skipStyle.of(true)),
+    scrollIntoView: tr.scrollIntoView,
+  };
+}
+
+function styleCommitted(view: EditorView, base: string) {
+  if (locked()) return;
+  if (typing.style === "plain" && !typing.underline && !typing.strike) return;
+  const next = view.state.doc.toString();
+  const change = insertedText(base, next);
+  if (!change) return;
+  const styled = styleTyped(change.text);
+  if (styled === change.text) return;
+  const from = change.start;
+  const to = change.start + change.text.length;
+  if (view.state.sliceDoc(from, to) !== change.text) return;
+  view.dispatch({
+    changes: { from, to, insert: styled },
+    selection: { anchor: from + styled.length },
+    annotations: skipStyle.of(true),
+    userEvent: "input.type",
+  });
+}
+
+function syncChrome(state: EditorState) {
+  const sel = state.selection.main;
+  selectionState.value = sel.empty ? null : formatState(state.sliceDoc(sel.from, sel.to));
+  menuOpen.value = completionStatus(state) === "active";
 }
 
 function applyAction(action: FormatAction) {
-  const el = inputRef.value;
-  if (!el || props.readonly || props.disabled) return;
-  const start = el.selectionStart ?? 0;
-  const end = el.selectionEnd ?? start;
-  if (start === end) {
+  const view = editor;
+  if (!view || locked()) return;
+  const sel = view.state.selection.main;
+  if (sel.empty) {
     const sample = applyLetterStyle("a", typing.style, typing.underline, typing.strike);
     typingFromState(formatState(toggleFormat(sample, action)));
     selectionState.value = null;
+    view.focus();
     return;
   }
-  const value = props.modelValue ?? "";
-  const next = toggleFormat(value.slice(start, end), action);
+  const slice = view.state.sliceDoc(sel.from, sel.to);
+  const next = toggleFormat(slice, action);
   typingFromState(formatState(next));
-  const updated = value.slice(0, start) + next + value.slice(end);
-  emit("update:modelValue", updated);
-  const caretEnd = start + next.length;
-  nextTick(() => {
-    el.focus();
-    el.setSelectionRange(start, caretEnd);
-    refreshCaret(el);
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: next },
+    selection: { anchor: sel.from, head: sel.from + next.length },
+    annotations: skipStyle.of(true),
   });
+  view.focus();
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if (props.readonly || props.disabled) return;
-  if ((e.ctrlKey || e.metaKey) && !e.altKey) {
-    const key = e.key.toLowerCase();
-    if (key === "b") {
-      e.preventDefault();
-      applyAction("bold");
-      return;
+function bindFormat(key: string, action: FormatAction) {
+  return {
+    key,
+    preventDefault: true,
+    run() {
+      if (locked()) return false;
+      applyAction(action);
+      return true;
+    },
+  };
+}
+
+function tokenDecorations(state: EditorState) {
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const tok of findStyledTokens(state.doc.toString())) {
+    if (tok.end <= tok.start) continue;
+    const cls = isBuiltinPlaceholder(tok.key) ? "cm-tok-builtin" : "cm-tok-custom";
+    builder.add(tok.start, tok.end, Decoration.mark({ class: cls }));
+  }
+  return builder.finish();
+}
+
+const tokenMarks = ViewPlugin.fromClass(
+  class {
+    decorations;
+    constructor(view: EditorView) {
+      this.decorations = tokenDecorations(view.state);
     }
-    if (key === "i") {
-      e.preventDefault();
-      applyAction("italic");
-      return;
+    update(update: ViewUpdate) {
+      if (update.docChanged) this.decorations = tokenDecorations(update.state);
     }
-    if (key === "u") {
-      e.preventDefault();
-      applyAction("underline");
-      return;
-    }
-    if (key === "m") {
-      e.preventDefault();
-      applyAction("mono");
-      return;
-    }
-    if (key === "k") {
-      e.preventDefault();
-      applyAction("strike");
-      return;
-    }
-  }
-  if (!menuOpen.value && !browseOpen.value) return;
-  if (e.key === "ArrowDown") {
-    e.preventDefault();
-    const n = menuItems.value.length;
-    if (n) menuIndex.value = (menuIndex.value + 1) % n;
-    return;
-  }
-  if (e.key === "ArrowUp") {
-    e.preventDefault();
-    const n = menuItems.value.length;
-    if (n) menuIndex.value = (menuIndex.value - 1 + n) % n;
-    return;
-  }
-  if (e.key === "Enter" || e.key === "Tab") {
-    const item = menuItems.value[menuIndex.value];
-    if (!item) return;
-    e.preventDefault();
-    if (browseOpen.value) insertPlaceholder(item.key);
-    else acceptSuggestion(item.key);
-    return;
-  }
-  if (e.key === "Escape") {
-    e.preventDefault();
-    menuOpen.value = false;
-    browseOpen.value = false;
-  }
+  },
+  { decorations: (plugin) => plugin.decorations },
+);
+
+function lockExtension(): Extension {
+  const off = locked();
+  return [EditorState.readOnly.of(off), EditorView.editable.of(!off)];
 }
 
-function acceptSuggestion(key: string) {
-  const el = inputRef.value;
-  if (!el) return;
-  const value = props.modelValue ?? "";
-  const insert = styleTyped(`{{${key}}}`);
-  const updated = value.slice(0, replaceStart.value) + insert + value.slice(replaceEnd.value);
-  emit("update:modelValue", updated);
-  menuOpen.value = false;
-  const caret = replaceStart.value + insert.length;
-  nextTick(() => {
-    el.focus();
-    el.setSelectionRange(caret, caret);
-    refreshCaret(el);
-  });
+function contentAttrs(): Record<string, string> {
+  const attrs: Record<string, string> = {
+    "aria-multiline": props.multiline ? "true" : "false",
+  };
+  if (props.id) attrs.id = props.id;
+  if (props.required) attrs["aria-required"] = "true";
+  if (props.disabled) attrs.tabindex = "-1";
+  return attrs;
 }
 
-function insertPlaceholder(key: string) {
-  const el = inputRef.value;
-  if (!el) return;
-  const value = props.modelValue ?? "";
-  const start = el.selectionStart ?? 0;
-  const end = el.selectionEnd ?? start;
-  const insert = styleTyped(`{{${key}}}`);
-  const updated = value.slice(0, start) + insert + value.slice(end);
-  emit("update:modelValue", updated);
-  browseOpen.value = false;
-  menuOpen.value = false;
-  const caret = start + insert.length;
-  nextTick(() => {
-    el.focus();
-    el.setSelectionRange(caret, caret);
-    refreshCaret(el);
-  });
+function editorTheme() {
+  return EditorView.theme(
+    {
+      "&": {
+        fontSize: "0.95rem",
+        backgroundColor: "transparent",
+        color: "var(--text)",
+        width: "100%",
+      },
+      "&.cm-focused": { outline: "none" },
+      ".cm-scroller": {
+        fontFamily: "inherit",
+        lineHeight: "1.45",
+        fontVariantLigatures: "none",
+        flex: props.multiline ? "1 1 auto" : "0 0 auto",
+        minHeight: props.multiline ? "0" : "auto",
+        overflowX: "auto",
+        overflowY: props.multiline ? "auto" : "hidden",
+      },
+      ".cm-content": {
+        fontFamily: "inherit",
+        fontVariantLigatures: "none",
+        fontFeatureSettings: '"liga" 0, "calt" 0',
+        padding: "0.45rem 0.6rem",
+        caretColor: "var(--text)",
+        minHeight: props.multiline ? "100%" : "auto",
+      },
+      ".cm-line": { padding: "0" },
+      ".cm-placeholder": {
+        color: "var(--muted, #8b9aab)",
+        fontFamily: "inherit",
+      },
+      ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--text)" },
+      "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground":
+        {
+          backgroundColor: "color-mix(in srgb, var(--accent, #3d8bfd) 45%, transparent)",
+        },
+      ".cm-tok-builtin": {
+        color: "color-mix(in srgb, var(--accent, #3d8bfd) 78%, var(--text))",
+      },
+      ".cm-tok-custom": {
+        color: "color-mix(in srgb, #e2b340 82%, var(--text))",
+      },
+    },
+    { dark: true },
+  );
 }
 
-function togglePlaceholderList() {
-  browseOpen.value = !browseOpen.value;
-  if (browseOpen.value) {
-    menuOpen.value = false;
-    menuIndex.value = 0;
-    placeMenu();
-  }
-}
+function editorExtensions(theme: Extension): Extension {
+  const formatKeys = [
+    bindFormat("Mod-b", "bold"),
+    bindFormat("Ctrl-b", "bold"),
+    bindFormat("Mod-i", "italic"),
+    bindFormat("Ctrl-i", "italic"),
+    bindFormat("Mod-u", "underline"),
+    bindFormat("Ctrl-u", "underline"),
+    bindFormat("Mod-m", "mono"),
+    bindFormat("Ctrl-m", "mono"),
+    bindFormat("Mod-k", "strike"),
+    bindFormat("Ctrl-k", "strike"),
+    {
+      key: "Enter",
+      run(view: EditorView) {
+        if (props.multiline) return insertNewline(view);
+        const form = view.dom.closest("form");
+        if (form instanceof HTMLFormElement) form.requestSubmit();
+        return true;
+      },
+      shift(view: EditorView) {
+        if (props.multiline) return insertNewline(view);
+        return true;
+      },
+    },
+    { key: "Tab", run: acceptCompletion },
+  ];
 
-function onSelect(e?: Event) {
-  if (e instanceof KeyboardEvent && (e.key === "ArrowDown" || e.key === "ArrowUp")) return;
-  refreshCaret(inputRef.value);
-}
-
-watch(menuIndex, () => {
-  nextTick(() => {
-    const menu = menuRef.value;
-    const item = menu?.querySelector("li.active");
-    if (!menu || !(item instanceof HTMLElement)) return;
-    const top = item.offsetTop;
-    const bottom = top + item.offsetHeight;
-    if (top < menu.scrollTop) menu.scrollTop = top;
-    else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
-  });
-});
-
-watch(suggestions, (list) => {
-  if (browseOpen.value) return;
-  if (!list.length) menuOpen.value = false;
-  else if (menuIndex.value >= list.length) menuIndex.value = 0;
-});
-
-function closeIfOutside(e: Event) {
-  if (!menuOpen.value && !browseOpen.value) return;
-  const target = e.target;
-  if (!(target instanceof Node)) return;
-  if (wrapRef.value?.contains(target)) return;
-  menuOpen.value = false;
-  browseOpen.value = false;
+  return [
+    editableComp.of(lockExtension()),
+    placeholderComp.of(props.placeholder ? cmPlaceholder(props.placeholder) : []),
+    history(),
+    drawSelection(),
+    props.multiline ? EditorView.lineWrapping : [],
+    tokenMarks,
+    autocompletion({
+      override: [placeholderCompletions],
+      activateOnTyping: true,
+      selectOnOpen: true,
+      icons: false,
+      tooltipClass: () => "ph-completion",
+    }),
+    keymap.of(standardKeymap),
+    keymap.of([
+      { key: "Mod-z", run: undo, preventDefault: true },
+      { key: "Mod-y", mac: "Mod-Shift-z", run: redo, preventDefault: true },
+      { key: "Mod-Shift-z", run: redo, preventDefault: true },
+    ]),
+    Prec.high(keymap.of(formatKeys)),
+    EditorState.transactionFilter.of(rewriteTransaction),
+    EditorView.domEventHandlers({
+      compositionstart(_event, view) {
+        composeActive = true;
+        composeBase = view.state.doc.toString();
+        return false;
+      },
+      compositionend(_event, view) {
+        const base = composeBase;
+        composeActive = false;
+        composeBase = null;
+        if (base == null) return false;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (view.dom.isConnected) styleCommitted(view, base);
+          });
+        });
+        return false;
+      },
+    }),
+    EditorView.updateListener.of((update) => {
+      if (update.docChanged) {
+        const text = update.state.doc.toString();
+        if (text !== (props.modelValue ?? "")) emit("update:modelValue", text);
+      }
+      if (update.docChanged || update.selectionSet || update.focusChanged) syncChrome(update.state);
+    }),
+    EditorView.contentAttributes.of(contentAttrs()),
+    EditorView.editorAttributes.of({ class: "ph-input" }),
+    theme,
+  ];
 }
 
 onMounted(() => {
-  document.addEventListener("pointerdown", closeIfOutside, true);
+  const ua = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  if (/CrOS/.test(ua)) os.value = "chromeos";
+  else if (/Win/.test(platform)) os.value = "windows";
+  else if (/Mac/.test(platform)) os.value = "mac";
+  else if (/Linux|X11/.test(platform)) os.value = "linux";
+
+  const parent = hostRef.value;
+  if (!parent) return;
+  editor = new EditorView({
+    parent,
+    state: EditorState.create({
+      doc: props.modelValue ?? "",
+      extensions: editorExtensions(editorTheme()),
+    }),
+  });
+  syncChrome(editor.state);
+  if (props.multiline) {
+    const fill = () => {
+      if (!editor) return;
+      const next = `${editor.scrollDOM.clientHeight}px`;
+      if (editor.contentDOM.style.minHeight !== next) editor.contentDOM.style.minHeight = next;
+    };
+    fillObserver = new ResizeObserver(fill);
+    fillObserver.observe(editor.scrollDOM);
+    fill();
+  }
 });
+
 onBeforeUnmount(() => {
-  document.removeEventListener("pointerdown", closeIfOutside, true);
+  fillObserver?.disconnect();
+  fillObserver = null;
+  editor?.destroy();
+  editor = null;
 });
+
+watch(
+  () => props.modelValue,
+  (value) => {
+    if (!editor) return;
+    const next = value ?? "";
+    if (next === editor.state.doc.toString()) return;
+    const anchor = Math.min(editor.state.selection.main.head, next.length);
+    editor.dispatch({
+      changes: { from: 0, to: editor.state.doc.length, insert: next },
+      selection: { anchor },
+      annotations: [skipStyle.of(true), Transaction.addToHistory.of(false)],
+    });
+  },
+);
+
+watch(
+  () => [props.readonly, props.disabled] as const,
+  () => {
+    editor?.dispatch({ effects: editableComp.reconfigure(lockExtension()) });
+  },
+);
+
+watch(
+  () => props.placeholder,
+  (value) => {
+    editor?.dispatch({
+      effects: placeholderComp.reconfigure(value ? cmPlaceholder(value) : []),
+    });
+  },
+);
+
+function togglePlaceholderList() {
+  const view = editor;
+  if (!view || locked()) return;
+  view.focus();
+  if (completionStatus(view.state) === "active") closeCompletion(view);
+  else startCompletion(view);
+}
+
+function onInvalid() {
+  editor?.focus();
+}
 </script>
 
 <template>
-  <div
-    ref="wrapRef"
-    class="ph-wrap"
-    :class="{ framed: !readonly || count != null, 'menu-open': menuOpen || browseOpen }"
-  >
-    <div class="ph-field" :class="{ multiline, 'is-preview': readonly }">
-      <div ref="mirrorRef" class="ph-mirror" aria-hidden="true" v-html="highlightedHtml" />
-      <textarea
-        v-if="multiline"
-        :id="id"
-        ref="inputRef"
-        class="ph-input"
-        :value="modelValue"
-        :rows="rows"
-        :required="required"
-        :placeholder="placeholder"
-        :disabled="disabled"
-        :readonly="readonly"
-        spellcheck="false"
-        @input="onInput"
-        @scroll="syncScroll"
-        @keydown="onKeydown"
-        @compositionstart="onCompositionStart"
-        @compositionend="onCompositionEnd"
-        @select="onSelect"
-        @keyup="onSelect"
-        @click="onSelect"
-        @blur="menuOpen = false; browseOpen = false"
-      />
+  <div class="ph-wrap" :class="{ framed: !readonly || count != null, 'menu-open': menuOpen }">
+    <div class="ph-field" :class="{ multiline, 'is-preview': readonly, 'is-disabled': disabled }">
+      <div ref="hostRef" class="ph-host" />
       <input
-        v-else
-        :id="id"
-        ref="inputRef"
-        class="ph-input"
+        v-if="required"
+        class="ph-validity"
         type="text"
-        :value="modelValue"
-        :required="required"
-        :placeholder="placeholder"
-        :disabled="disabled"
-        :readonly="readonly"
-        spellcheck="false"
-        @input="onInput"
-        @scroll="syncScroll"
-        @keydown="onKeydown"
-        @compositionstart="onCompositionStart"
-        @compositionend="onCompositionEnd"
-        @select="onSelect"
-        @keyup="onSelect"
-        @click="onSelect"
-        @blur="menuOpen = false; browseOpen = false"
+        :value="modelValue ?? ''"
+        required
+        tabindex="-1"
+        autocomplete="off"
+        aria-hidden="true"
+        @invalid="onInvalid"
       />
     </div>
     <div v-if="!readonly || count != null" class="ph-toolbar">
@@ -570,8 +624,8 @@ onBeforeUnmount(() => {
           class="fmt placeholders"
           title="Insert placeholder"
           aria-label="Insert placeholder"
-          :aria-expanded="browseOpen"
-          :class="{ on: browseOpen }"
+          :aria-expanded="menuOpen"
+          :class="{ on: menuOpen }"
           :disabled="disabled"
           @mousedown.prevent
           @click="togglePlaceholderList"
@@ -588,12 +642,7 @@ onBeforeUnmount(() => {
         >
           ☺
         </button>
-        <div
-          :id="hintId"
-          popover
-          class="emoji-hint"
-          :style="{ positionAnchor: `--${hintId}` }"
-        >
+        <div :id="hintId" popover class="emoji-hint" :style="{ positionAnchor: `--${hintId}` }">
           <p>This page can’t open the emoji panel. Focus this field and use the shortcut.</p>
           <ul>
             <li v-for="item in emojiShortcuts" :key="item.id" :class="{ here: os === item.id }">
@@ -603,33 +652,10 @@ onBeforeUnmount(() => {
           </ul>
         </div>
       </div>
-      <span
-        v-if="count != null"
-        class="ph-count"
-        :class="{ over: max != null && count > max }"
-      >
+      <span v-if="count != null" class="ph-count" :class="{ over: max != null && count > max }">
         {{ count }}<template v-if="max != null"> / {{ max }}</template>
       </span>
     </div>
-    <ul
-      v-if="(browseOpen || menuOpen) && menuItems.length"
-      ref="menuRef"
-      class="ph-menu"
-      role="listbox"
-      :style="{ top: `${menuPos.top}px`, left: `${menuPos.left}px` }"
-    >
-      <li
-        v-for="(item, i) in menuItems"
-        :key="item.key"
-        role="option"
-        :aria-selected="i === menuIndex"
-        :class="{ active: i === menuIndex }"
-        @mousedown.prevent="browseOpen ? insertPlaceholder(item.key) : acceptSuggestion(item.key)"
-      >
-        <code v-text="'{{' + item.key + '}}'" />
-        <span class="muted">{{ item.label }}</span>
-      </li>
-    </ul>
   </div>
 </template>
 
@@ -654,10 +680,6 @@ onBeforeUnmount(() => {
 }
 .ph-wrap.framed:focus-within {
   border-color: var(--accent, #3b82f6);
-}
-.ph-wrap.framed .ph-input:focus {
-  outline: none;
-  border-color: transparent;
 }
 .ph-toolbar {
   position: relative;
@@ -773,24 +795,10 @@ onBeforeUnmount(() => {
   color: var(--danger, #e35d6a);
   font-weight: 700;
 }
-.ph-wrap.framed .ph-mirror,
-.ph-wrap.framed .ph-input {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-}
-.ph-wrap.framed .ph-mirror {
-  background: transparent;
-}
 .ph-field {
   position: relative;
   width: 100%;
-}
-.ph-field.is-preview .ph-mirror {
-  background: color-mix(in srgb, var(--panel) 70%, transparent);
-}
-.ph-field.is-preview .ph-input {
-  caret-color: transparent;
+  min-width: 0;
 }
 .ph-field.multiline {
   display: flex;
@@ -798,105 +806,81 @@ onBeforeUnmount(() => {
   flex: 1 1 auto;
   min-height: 0;
 }
-.ph-mirror,
-.ph-input {
-  font: inherit;
-  font-size: 0.95rem;
-  line-height: 1.45;
-  letter-spacing: inherit;
-  font-variant-ligatures: none;
-  font-feature-settings: "liga" 0, "calt" 0;
-  padding: 0.45rem 0.6rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  box-sizing: border-box;
+.ph-host {
+  min-width: 0;
   width: 100%;
-  margin: 0;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  scrollbar-gutter: stable;
 }
-.ph-mirror {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  color: var(--text);
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
-  overflow: auto;
-  scrollbar-width: none;
-  z-index: 0;
+.ph-field.multiline .ph-host {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 12rem;
 }
-.ph-mirror::-webkit-scrollbar {
-  display: none;
-}
-.ph-input {
-  position: relative;
-  z-index: 1;
-  color: transparent;
-  caret-color: var(--text);
+.ph-field :deep(.ph-input) {
+  border: none;
+  border-radius: 0;
   background: transparent;
-  overflow: auto;
+}
+.ph-field.multiline :deep(.ph-input) {
+  flex: 1 1 auto;
+  min-height: 12rem;
+  height: 100%;
+  overflow: hidden;
   resize: vertical;
 }
-.ph-field.multiline .ph-input {
+.ph-field.multiline :deep(.cm-scroller) {
   flex: 1 1 auto;
-  min-height: inherit;
-  height: 100%;
-}
-.ph-field:not(.multiline) .ph-input {
-  resize: none;
-  white-space: nowrap;
-  overflow-x: auto;
-}
-.ph-field:not(.multiline) .ph-mirror {
-  white-space: pre;
-  overflow: hidden;
-}
-.ph-mirror :deep(mark) {
-  color: inherit;
-  font: inherit;
-  line-height: inherit;
-  letter-spacing: inherit;
-  padding: 0;
-  margin: 0;
-  border: 0;
-  background: none;
-}
-.ph-mirror :deep(.tok-builtin) {
-  color: color-mix(in srgb, var(--accent, #3d8bfd) 78%, var(--text));
-}
-.ph-mirror :deep(.tok-custom) {
-  color: color-mix(in srgb, #e2b340 82%, var(--text));
-}
-.ph-menu {
-  position: absolute;
-  z-index: 30;
-  width: max-content;
-  min-width: 14rem;
-  max-width: calc(100% - 1rem);
-  margin: 0;
-  padding: 0.25rem;
-  list-style: none;
-  max-height: 12rem;
+  min-height: 0;
+  height: auto;
   overflow: auto;
+}
+.ph-field.is-preview :deep(.cm-cursor) {
+  display: none !important;
+}
+.ph-validity {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  resize: none;
+}
+</style>
+
+<style>
+.cm-tooltip.ph-completion {
+  z-index: 80;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-elevated, #1a222c);
+  color: var(--text);
   box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+  overflow: hidden;
 }
-.ph-menu li {
-  display: flex;
-  gap: 0.6rem;
-  align-items: baseline;
+.cm-tooltip.ph-completion > ul {
+  font-family: inherit;
+  max-height: 12rem !important;
+}
+.cm-tooltip.ph-completion > ul > li {
   padding: 0.3rem 0.45rem;
-  border-radius: 6px;
-  cursor: pointer;
+  line-height: 1.35;
 }
-.ph-menu li.active {
+.cm-tooltip.ph-completion > ul > li[aria-selected] {
   background: color-mix(in srgb, var(--accent, #3b82f6) 24%, transparent);
+  color: var(--text);
 }
-.ph-menu code {
+.cm-tooltip.ph-completion .cm-completionLabel {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.85rem;
+}
+.cm-tooltip.ph-completion .cm-completionDetail {
+  margin-left: 0.6rem;
+  color: var(--muted, #8b9aab);
+  font-style: normal;
+  font-size: 0.8rem;
 }
 </style>

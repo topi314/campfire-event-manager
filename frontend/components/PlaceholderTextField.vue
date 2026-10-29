@@ -250,6 +250,7 @@ function typingFromState(state: FormatState) {
 }
 
 const menuPos = ref({ top: 0, left: 0 });
+const menuRef = ref<HTMLElement | null>(null);
 
 function placeMenu() {
   const el = inputRef.value;
@@ -314,12 +315,17 @@ function refreshCaret(el: HTMLInputElement | HTMLTextAreaElement | null) {
     menuOpen.value = false;
     return;
   }
+  const same =
+    menuOpen.value &&
+    activeQuery.value === range.query &&
+    replaceStart.value === range.start &&
+    replaceEnd.value === range.end;
   activeQuery.value = range.query;
   replaceStart.value = range.start;
   replaceEnd.value = range.end;
-  browseOpen.value = false;
+  if (browseOpen.value) return;
   menuOpen.value = true;
-  menuIndex.value = 0;
+  if (!same) menuIndex.value = 0;
   placeMenu();
 }
 
@@ -377,24 +383,25 @@ function onKeydown(e: KeyboardEvent) {
       return;
     }
   }
-  if (!menuOpen.value) return;
+  if (!menuOpen.value && !browseOpen.value) return;
   if (e.key === "ArrowDown") {
     e.preventDefault();
-    const n = suggestions.value.length;
+    const n = menuItems.value.length;
     if (n) menuIndex.value = (menuIndex.value + 1) % n;
     return;
   }
   if (e.key === "ArrowUp") {
     e.preventDefault();
-    const n = suggestions.value.length;
+    const n = menuItems.value.length;
     if (n) menuIndex.value = (menuIndex.value - 1 + n) % n;
     return;
   }
   if (e.key === "Enter" || e.key === "Tab") {
-    const item = suggestions.value[menuIndex.value];
+    const item = menuItems.value[menuIndex.value];
     if (!item) return;
     e.preventDefault();
-    acceptSuggestion(item.key);
+    if (browseOpen.value) insertPlaceholder(item.key);
+    else acceptSuggestion(item.key);
     return;
   }
   if (e.key === "Escape") {
@@ -443,13 +450,27 @@ function togglePlaceholderList() {
   browseOpen.value = !browseOpen.value;
   if (browseOpen.value) {
     menuOpen.value = false;
+    menuIndex.value = 0;
     placeMenu();
   }
 }
 
-function onSelect() {
+function onSelect(e?: Event) {
+  if (e instanceof KeyboardEvent && (e.key === "ArrowDown" || e.key === "ArrowUp")) return;
   refreshCaret(inputRef.value);
 }
+
+watch(menuIndex, () => {
+  nextTick(() => {
+    const menu = menuRef.value;
+    const item = menu?.querySelector("li.active");
+    if (!menu || !(item instanceof HTMLElement)) return;
+    const top = item.offsetTop;
+    const bottom = top + item.offsetHeight;
+    if (top < menu.scrollTop) menu.scrollTop = top;
+    else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
+  });
+});
 
 watch(suggestions, (list) => {
   if (browseOpen.value) return;
@@ -592,6 +613,7 @@ onBeforeUnmount(() => {
     </div>
     <ul
       v-if="(browseOpen || menuOpen) && menuItems.length"
+      ref="menuRef"
       class="ph-menu"
       role="listbox"
       :style="{ top: `${menuPos.top}px`, left: `${menuPos.left}px` }"
@@ -600,8 +622,8 @@ onBeforeUnmount(() => {
         v-for="(item, i) in menuItems"
         :key="item.key"
         role="option"
-        :aria-selected="!browseOpen && i === menuIndex"
-        :class="{ active: !browseOpen && i === menuIndex }"
+        :aria-selected="i === menuIndex"
+        :class="{ active: i === menuIndex }"
         @mousedown.prevent="browseOpen ? insertPlaceholder(item.key) : acceptSuggestion(item.key)"
       >
         <code v-text="'{{' + item.key + '}}'" />

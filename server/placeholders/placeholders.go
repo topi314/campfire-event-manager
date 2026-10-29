@@ -25,6 +25,7 @@ var BuiltinKeys = []string{
 	"dateShort",
 	"year",
 	"month",
+	"day",
 	"weekday",
 	"startTime",
 	"endTime",
@@ -212,6 +213,7 @@ func ResolveBuiltins(ctx Context) map[string]string {
 		"dateShort": "",
 		"year":      "",
 		"month":     "",
+		"day":       "",
 		"weekday":   "",
 		"startTime": "",
 		"endTime":   "",
@@ -228,6 +230,7 @@ func ResolveBuiltins(ctx Context) map[string]string {
 		out["dateShort"] = local.Format("2006-01-02")
 		out["year"] = local.Format("2006")
 		out["month"] = local.Format("01")
+		out["day"] = local.Format("02")
 		out["weekday"] = local.Format("Monday")
 		out["startTime"] = local.Format("15:04")
 		for _, id := range timeformat.IDs() {

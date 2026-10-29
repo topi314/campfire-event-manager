@@ -132,7 +132,8 @@ onBeforeUnmount(() => {
               Without an id, <code v-pre>{{date}}</code> is <code>Oct 18, 2026</code>,
               <code v-pre>{{dateShort}}</code> is <code>2026-10-18</code>,
               <code v-pre>{{year}}</code> is <code>2026</code>,
-              <code v-pre>{{month}}</code> is <code>10</code>, and
+              <code v-pre>{{month}}</code> is <code>10</code>,
+              <code v-pre>{{day}}</code> is <code>18</code>, and
               <code v-pre>{{startTime}}</code> / <code v-pre>{{endTime}}</code> are
               <code>15:45</code>. An unknown id falls back to that default.
             </p>

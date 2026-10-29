@@ -55,8 +55,8 @@ func TestResolveBuiltins(t *testing.T) {
 	if vals["dateShort"] != "2026-10-02" {
 		t.Fatalf("dateShort=%q", vals["dateShort"])
 	}
-	if vals["year"] != "2026" || vals["month"] != "10" {
-		t.Fatalf("year=%q month=%q", vals["year"], vals["month"])
+	if vals["year"] != "2026" || vals["month"] != "10" || vals["day"] != "02" {
+		t.Fatalf("year=%q month=%q day=%q", vals["year"], vals["month"], vals["day"])
 	}
 	if vals["lat"] != "50.11" || vals["lng"] != "8.68" {
 		t.Fatalf("coords lat=%q lng=%q", vals["lat"], vals["lng"])

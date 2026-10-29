@@ -134,6 +134,13 @@ export const BUILTIN_PLACEHOLDERS: BuiltinPlaceholder[] = [
     group: "core",
   },
   {
+    key: "day",
+    label: "Day",
+    description: "Meetup calendar day of the month as a number (01–31).",
+    example: "30",
+    group: "core",
+  },
+  {
     key: "weekday",
     label: "Weekday",
     description: "Weekday name for the meetup day.",
@@ -430,12 +437,14 @@ export function resolveBuiltinPlaceholderValues(
     byCanonical.dateShort = `${ctx.date.year}-${pad(ctx.date.month)}-${pad(ctx.date.day)}`;
     byCanonical.year = String(ctx.date.year);
     byCanonical.month = pad(ctx.date.month);
+    byCanonical.day = pad(ctx.date.day);
     byCanonical.weekday = formatWeekday(ctx.date);
   } else {
     byCanonical.date = "";
     byCanonical.dateShort = "";
     byCanonical.year = "";
     byCanonical.month = "";
+    byCanonical.day = "";
     byCanonical.weekday = "";
   }
 

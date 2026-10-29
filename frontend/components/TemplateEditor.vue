@@ -22,6 +22,7 @@ import {
 } from "~/utils/datetime";
 import { DEFAULT_LOCATION_JITTER_METERS } from "~/utils/location";
 import { CATEGORY_SELECT_CUSTOM } from "~/utils/eventCategory";
+import { vGrow } from "~/utils/growTextarea";
 import {
   TEMPLATE_LANGUAGES,
   isTemplateLanguageCode,
@@ -553,9 +554,10 @@ function onSubmit() {
             aria-label="Label"
             @input="markField('placeholders')"
           />
-          <input
+          <textarea
             v-model="ph.default"
-            type="text"
+            v-grow
+            rows="1"
             placeholder="Default value"
             aria-label="Default"
             @input="markField('placeholders')"
@@ -584,6 +586,7 @@ function onSubmit() {
             id="tpl-title"
             v-model="form.title"
             required
+            :extra-placeholders="placeholderMeta"
             :placeholder="'{{liveEvent}} — {{city}}'"
             @update:model-value="markField('title')"
           />
@@ -604,6 +607,7 @@ function onSubmit() {
             v-model="form.details"
             multiline
             :rows="10"
+            :extra-placeholders="placeholderMeta"
             @update:model-value="markField('details')"
           />
           <PlaceholderHelp compact />
@@ -967,7 +971,13 @@ function onSubmit() {
   display: grid;
   grid-template-columns: minmax(5rem, auto) 1fr 1fr;
   gap: 0.5rem;
-  align-items: center;
+  align-items: start;
+}
+.placeholder-row textarea {
+  resize: none;
+  overflow: hidden;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 .placeholder-row code {
   font-size: 0.85rem;

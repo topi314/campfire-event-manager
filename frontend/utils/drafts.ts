@@ -8,6 +8,7 @@ import { randomOffsetLatLng } from "~/utils/location";
 import {
   applyPlaceholders,
   resolveBuiltinPlaceholderValues,
+  singleLineTitle,
 } from "~/utils/placeholders";
 
 export function parseDraftPayload(item: MeetupDraftItem): DraftMeetupPayload {
@@ -51,7 +52,7 @@ export function resolveDraftTextFields(
     ...(item.placeholderValues || {}),
   };
   return {
-    name: applyPlaceholders(item.name, values),
+    name: singleLineTitle(applyPlaceholders(item.name, values)),
     details: applyPlaceholders(item.details, values),
     address: applyPlaceholders(item.address, values),
     coverPhotoUrl: applyPlaceholders(item.coverPhotoUrl, values),

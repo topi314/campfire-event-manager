@@ -328,6 +328,7 @@ onBeforeUnmount(() => {
 }
 .placeholders .default {
   color: var(--muted);
+  white-space: pre-wrap;
 }
 @media (max-width: 520px) {
   .meta {

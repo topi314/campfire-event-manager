@@ -92,7 +92,14 @@ func (s *Server) applyMeetupPlaceholders(
 		Address:       address,
 		CoverPhotoURL: cover,
 	}, ctx, meta.PlaceholderValues)
-	return strings.TrimSpace(out.Name), out.Details, out.Address, out.CoverPhotoURL
+	return flattenTitle(out.Name), out.Details, out.Address, out.CoverPhotoURL
+}
+
+func flattenTitle(name string) string {
+	name = strings.ReplaceAll(name, "\r\n", "\n")
+	name = strings.ReplaceAll(name, "\r", "\n")
+	name = strings.ReplaceAll(name, "\n", " ")
+	return strings.TrimSpace(name)
 }
 
 func meetupTextOverLimit(name, details string) string {

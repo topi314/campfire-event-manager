@@ -10,9 +10,6 @@ import (
 	"github.com/topi314/campfire-event-manager/server/timeformat"
 )
 
-// Match {{key}}, {{key[1]}}, {{eventPokemon[1]:de}}, and {{date:dmy-dot-24}}.
-var tokenRE = regexp.MustCompile(`\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*(?:\[[0-9]+\])?(?::[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*)?)\s*\}\}`)
-
 var suffixRE = regexp.MustCompile(`(?i):([a-z0-9]+(?:-[a-z0-9]+)*)$`)
 
 // BuiltinKeys lists documented built-in placeholder names (canonical casing, unindexed).
@@ -26,6 +23,8 @@ var BuiltinKeys = []string{
 	"lng",
 	"date",
 	"dateShort",
+	"year",
+	"month",
 	"weekday",
 	"startTime",
 	"endTime",
@@ -171,33 +170,30 @@ func Lookup(values map[string]string, key string) (string, bool) {
 }
 
 // Apply substitutes {{tokens}} in text using values (case-insensitive keys).
-// Unknown tokens are left unchanged, except event-pokemon builtins (incl. OOB indexes)
-// which resolve to empty when missing.
+// Letters inside a token may use Unicode mathematical styles; the replacement
+// keeps that style. Unknown tokens are left unchanged, except event-pokemon
+// builtins (incl. OOB indexes) which resolve to empty when missing.
 func Apply(text string, values map[string]string) string {
-	if text == "" || !strings.Contains(text, "{{") {
+	if text == "" || !strings.ContainsRune(text, '{') {
 		return text
 	}
-	return tokenRE.ReplaceAllStringFunc(text, func(match string) string {
-		sub := tokenRE.FindStringSubmatch(match)
-		if len(sub) < 2 {
-			return match
+	tokens := findStyledTokens(text)
+	if len(tokens) == 0 {
+		return text
+	}
+	var b strings.Builder
+	last := 0
+	for _, tok := range tokens {
+		b.WriteString(text[last:tok.start])
+		if v, ok := lookupResolved(tok.key, values); ok {
+			b.WriteString(applyLetterStyle(v, tok.style, tok.underline, tok.strike))
+		} else {
+			b.WriteString(text[tok.start:tok.end])
 		}
-		key := sub[1]
-		if v, ok := Lookup(values, key); ok {
-			return v
-		}
-		if v, ok := lookupPinnedLang(values, key); ok {
-			return v
-		}
-		if v, ok := lookupUnscoped(values, key); ok {
-			return v
-		}
-		base := baseKey(key)
-		if pokemon.IsEventPokemonBase(base) {
-			return ""
-		}
-		return match
-	})
+		last = tok.end
+	}
+	b.WriteString(text[last:])
+	return b.String()
 }
 
 // ResolveBuiltins builds the built-in placeholder map from ctx.
@@ -214,6 +210,8 @@ func ResolveBuiltins(ctx Context) map[string]string {
 		"lng":       "",
 		"date":      "",
 		"dateShort": "",
+		"year":      "",
+		"month":     "",
 		"weekday":   "",
 		"startTime": "",
 		"endTime":   "",
@@ -228,6 +226,8 @@ func ResolveBuiltins(ctx Context) map[string]string {
 		local := ctx.EventTime.In(loc)
 		out["date"] = local.Format("Jan 2, 2006")
 		out["dateShort"] = local.Format("2006-01-02")
+		out["year"] = local.Format("2006")
+		out["month"] = local.Format("01")
 		out["weekday"] = local.Format("Monday")
 		out["startTime"] = local.Format("15:04")
 		for _, id := range timeformat.IDs() {

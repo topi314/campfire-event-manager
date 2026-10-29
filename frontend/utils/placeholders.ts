@@ -1,9 +1,6 @@
 import { layoutPieces } from "~/utils/datetime";
+import { applyLetterStyle, findStyledTokens } from "~/utils/unicodeStyle";
 import { isTimeFormatId, TIME_FORMAT_IDS, type TimeFormatId } from "~/utils/timeFormats";
-
-/** Match {{key}}, {{key[1]}}, {{eventPokemon[1]:de}}, and {{date:dmy-dot-24}}. */
-export const PLACEHOLDER_RE =
-  /\{\{\s*([a-zA-Z][a-zA-Z0-9_-]*(?:\[[0-9]+\])?(?::[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*)?)\s*\}\}/g;
 
 export type PlaceholderDef = {
   key: string;
@@ -120,6 +117,20 @@ export const BUILTIN_PLACEHOLDERS: BuiltinPlaceholder[] = [
     label: "Date (short)",
     description: "Meetup calendar day as YYYY-MM-DD.",
     example: "2026-09-30",
+    group: "core",
+  },
+  {
+    key: "year",
+    label: "Year",
+    description: "Meetup calendar year as a number.",
+    example: "2026",
+    group: "core",
+  },
+  {
+    key: "month",
+    label: "Month",
+    description: "Meetup calendar month as a number (01–12).",
+    example: "09",
     group: "core",
   },
   {
@@ -417,10 +428,14 @@ export function resolveBuiltinPlaceholderValues(
   if (ctx.date) {
     byCanonical.date = formatReadableDate(ctx.date);
     byCanonical.dateShort = `${ctx.date.year}-${pad(ctx.date.month)}-${pad(ctx.date.day)}`;
+    byCanonical.year = String(ctx.date.year);
+    byCanonical.month = pad(ctx.date.month);
     byCanonical.weekday = formatWeekday(ctx.date);
   } else {
     byCanonical.date = "";
     byCanonical.dateShort = "";
+    byCanonical.year = "";
+    byCanonical.month = "";
     byCanonical.weekday = "";
   }
 
@@ -470,10 +485,8 @@ export function resolveBuiltinPlaceholderValues(
 export function extractPlaceholderKeys(text: string): string[] {
   const keys: string[] = [];
   const seen = new Set<string>();
-  PLACEHOLDER_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = PLACEHOLDER_RE.exec(text)) !== null) {
-    const key = canonicalPlaceholderKey(m[1]);
+  for (const tok of findStyledTokens(text)) {
+    const key = canonicalPlaceholderKey(tok.key);
     const norm = normalizePlaceholderKey(key);
     if (!seen.has(norm)) {
       seen.add(norm);
@@ -575,24 +588,44 @@ function lookupPinnedLang(
   return lookupPlaceholderValue(values, `${rest}:en`);
 }
 
-export function applyPlaceholders(text: string, values: Record<string, string>): string {
-  return text.replace(PLACEHOLDER_RE, (_, key: string) => {
-    const v = lookupPlaceholderValue(values, key);
-    if (v != null) return v;
-    const pinned = lookupPinnedLang(values, key);
-    if (pinned != null) return pinned;
-    const { rest, suffix } = splitPlaceholderSuffix(key);
-    if (suffix) {
-      const { base } = splitPlaceholderIndex(rest);
-      if (isEventPokemonNameBase(base) || isTimeLayoutBase(base)) {
-        const unscoped = lookupPlaceholderValue(values, rest);
-        if (unscoped != null) return unscoped;
-      }
+function resolvePlaceholderValue(key: string, values: Record<string, string>): string | null {
+  const v = lookupPlaceholderValue(values, key);
+  if (v != null) return v;
+  const pinned = lookupPinnedLang(values, key);
+  if (pinned != null) return pinned;
+  const { rest, suffix } = splitPlaceholderSuffix(key);
+  if (suffix) {
+    const { base } = splitPlaceholderIndex(rest);
+    if (isEventPokemonNameBase(base) || isTimeLayoutBase(base)) {
+      const unscoped = lookupPlaceholderValue(values, rest);
+      if (unscoped != null) return unscoped;
     }
-    // Event-pokemon builtins (incl. OOB indexes) resolve to empty when missing.
-    if (isEventPokemonBaseKey(key)) return "";
-    return `{{${key}}}`;
-  });
+  }
+  if (isEventPokemonBaseKey(key)) return "";
+  return null;
+}
+
+export function singleLineTitle(text: string): string {
+  return text.replace(/\r\n|\r|\n/g, " ").trim();
+}
+
+export function applyPlaceholders(text: string, values: Record<string, string>): string {
+  const tokens = findStyledTokens(text);
+  if (!tokens.length) return text;
+  let out = "";
+  let last = 0;
+  for (const tok of tokens) {
+    out += text.slice(last, tok.start);
+    const resolved = resolvePlaceholderValue(tok.key, values);
+    if (resolved == null) {
+      out += text.slice(tok.start, tok.end);
+    } else {
+      out += applyLetterStyle(resolved, tok.style, tok.underline, tok.strike);
+    }
+    last = tok.end;
+  }
+  out += text.slice(last);
+  return out;
 }
 
 /** Deep-clone payload and substitute placeholders in every string field. */

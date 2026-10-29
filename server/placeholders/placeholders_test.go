@@ -55,6 +55,9 @@ func TestResolveBuiltins(t *testing.T) {
 	if vals["dateShort"] != "2026-10-02" {
 		t.Fatalf("dateShort=%q", vals["dateShort"])
 	}
+	if vals["year"] != "2026" || vals["month"] != "10" {
+		t.Fatalf("year=%q month=%q", vals["year"], vals["month"])
+	}
 	if vals["lat"] != "50.11" || vals["lng"] != "8.68" {
 		t.Fatalf("coords lat=%q lng=%q", vals["lat"], vals["lng"])
 	}
@@ -168,5 +171,37 @@ func TestApplyPinnedEventPokemonLanguage(t *testing.T) {
 	}
 	if parts[3] != "{{eventPokemonCeilingRaid:en}}" {
 		t.Fatalf("ceiling pin should stay unresolved, got %q", parts[3])
+	}
+}
+
+func TestApplyStyledPlaceholder(t *testing.T) {
+	bold := "{{" + applyLetterStyle("club", styleBold, false, false) + "}}"
+	got := Apply("Hi "+bold, map[string]string{"club": "PoGo"})
+	want := "Hi " + applyLetterStyle("PoGo", styleBold, false, false)
+	if got != want {
+		t.Fatalf("bold got %q want %q", got, want)
+	}
+
+	under := "{{" + applyLetterStyle("city", styleBold, true, false) + "}}"
+	got = Apply(under, map[string]string{"city": "Berlin"})
+	want = applyLetterStyle("Berlin", styleBold, true, false)
+	if got != want {
+		t.Fatalf("bold underline got %q want %q", got, want)
+	}
+
+	struck := applyLetterStyle("{{club}}", styleMono, false, true)
+	got = Apply(struck, map[string]string{"club": "X"})
+	want = applyLetterStyle("X", styleMono, false, true)
+	if got != want {
+		t.Fatalf("mono strike got %q want %q", got, want)
+	}
+
+	italicHi := applyLetterStyle("hi", styleItalic, false, false)
+	if !strings.ContainsRune(italicHi, 0x210e) {
+		t.Fatalf("italic h = %q", italicHi)
+	}
+	plain, style, ok := foldRune([]rune(italicHi)[0])
+	if !ok || plain != 'h' || style != styleItalic {
+		t.Fatalf("fold italic h plain=%q style=%d ok=%v", string(plain), style, ok)
 	}
 }

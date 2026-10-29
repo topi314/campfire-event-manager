@@ -32,12 +32,14 @@ import {
   normalizePlaceholderKey,
   resolveBuiltinPlaceholderValues,
   resolveCustomPlaceholderDefs,
+  singleLineTitle,
   type PlaceholderDef,
 } from "~/utils/placeholders";
 import { DEFAULT_LOCATION_JITTER_METERS, parseCampfireLocation } from "~/utils/location";
 import { buildMeetupBodyFromDraft, parseDraftPayload } from "~/utils/drafts";
 import { fetchMeetupSchedule } from "~/utils/meetupSchedule";
 import { isCampfireTokenError } from "~/composables/useSessionToken";
+import { vGrow } from "~/utils/growTextarea";
 import {
   TEMPLATE_LANGUAGES,
   isTemplateLanguageCode,
@@ -500,7 +502,7 @@ function currentPlaceholderMap(): Record<string, string> {
 function resolvedDraftText() {
   const map = currentPlaceholderMap();
   return {
-    name: applyPlaceholders(draft.name, map),
+    name: singleLineTitle(applyPlaceholders(draft.name, map)),
     details: applyPlaceholders(draft.details, map),
     address: applyPlaceholders(draft.address, map),
     coverPhotoUrl: applyPlaceholders(draft.coverPhotoUrl, map),
@@ -1929,10 +1931,11 @@ function templateOptionLabel(t: MeetupTemplate) {
                 {{ d.label || humanizePlaceholderKey(d.key) }}
                 <span v-if="placeholderRequired(d)" class="req">*</span>
               </label>
-              <input
+              <textarea
                 :id="`ph-${d.key}`"
                 v-model="placeholderValues[d.key]"
-                type="text"
+                v-grow
+                rows="1"
                 :required="placeholderRequired(d)"
                 :placeholder="d.default || d.label || humanizePlaceholderKey(d.key)"
               />
@@ -1972,35 +1975,29 @@ function templateOptionLabel(t: MeetupTemplate) {
           </div>
 
           <div class="field">
-            <label for="name">
-              Title
-              <span
-                class="char-count muted"
-                :class="{ over: resolvedNameLen > MAX_MEETUP_TITLE }"
-              >
-                {{ resolvedNameLen }} / {{ MAX_MEETUP_TITLE }}
-              </span>
-            </label>
+            <label for="name">Title</label>
             <PlaceholderTextField
               id="name"
               :model-value="textViewMode === 'edit' ? draft.name : previewText.name"
               :required="textViewMode === 'edit'"
               :readonly="textViewMode === 'preview'"
+              :extra-placeholders="placeholderDefs"
+              :count="resolvedNameLen"
+              :max="MAX_MEETUP_TITLE"
               @update:model-value="onTitleInput"
             />
           </div>
 
           <div class="field field-details">
-            <label for="details">
-              Description
-              <span class="char-count muted">{{ resolvedDetailsLen }}</span>
-            </label>
+            <label for="details">Description</label>
             <PlaceholderTextField
               id="details"
               :model-value="textViewMode === 'edit' ? draft.details : previewText.details"
               multiline
               :rows="10"
               :readonly="textViewMode === 'preview'"
+              :extra-placeholders="placeholderDefs"
+              :count="resolvedDetailsLen"
               @update:model-value="onDetailsInput"
             />
             <PlaceholderHelp compact />
@@ -2384,16 +2381,13 @@ function templateOptionLabel(t: MeetupTemplate) {
 .ph-item {
   margin-bottom: 0 !important;
 }
+.ph-item textarea {
+  resize: none;
+  overflow: hidden;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
 .req {
-  color: var(--danger, #b91c1c);
-  font-weight: 700;
-}
-.char-count {
-  float: right;
-  font-weight: 500;
-  font-size: 0.8rem;
-}
-.char-count.over {
   color: var(--danger, #b91c1c);
   font-weight: 700;
 }

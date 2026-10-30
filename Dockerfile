@@ -9,6 +9,9 @@ RUN --mount=type=cache,target=/root/.npm \
     if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY frontend/ ./
+# utils/placeholders.ts imports this from the repo root (../../server/...).
+# The frontend stage only has /app, so place the file where that relative path lands.
+COPY server/placeholders/calendar_names.json /server/placeholders/calendar_names.json
 ENV NUXT_PUBLIC_API_BASE=
 RUN npm run generate
 

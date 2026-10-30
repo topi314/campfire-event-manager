@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/topi314/campfire-event-manager/server/languages"
 	"github.com/topi314/campfire-event-manager/server/pokemon"
 	"github.com/topi314/campfire-event-manager/server/timeformat"
 )
@@ -25,6 +26,7 @@ var BuiltinKeys = []string{
 	"dateShort",
 	"year",
 	"month",
+	"monthName",
 	"day",
 	"weekday",
 	"startTime",
@@ -66,7 +68,7 @@ type Context struct {
 	EventEndTime  time.Time
 	HasEndTime    bool
 	TimeZone      string
-	// Language is the template language code (for eventPokemon translation).
+	// Language is the template language code (eventPokemon names, monthName, and weekday).
 	Language string
 	// CategoryPatterns maps category → phrases used to strip titles when extracting species.
 	CategoryPatterns map[string][]string
@@ -95,6 +97,20 @@ func isTimeLayout(base string) bool {
 	}
 }
 
+func isCalendarName(base string) bool {
+	switch strings.ToLower(strings.TrimSpace(base)) {
+	case "monthname", "weekday":
+		return true
+	default:
+		return false
+	}
+}
+
+func recognizedSuffixBase(base string) bool {
+	base = strings.TrimSpace(base)
+	return strings.EqualFold(base, "eventPokemon") || isTimeLayout(base) || isCalendarName(base)
+}
+
 func keepSuffix(base, suffix string) bool {
 	if suffix == "" {
 		return false
@@ -103,19 +119,22 @@ func keepSuffix(base, suffix string) bool {
 		_, _, ok := pokemon.SplitLang(base + ":" + suffix)
 		return ok
 	}
+	if isCalendarName(base) {
+		return languages.Valid(suffix)
+	}
 	return isTimeLayout(base) && timeformat.Valid(suffix)
 }
 
 // baseKey strips a trailing [digits] index.
-// A :lang pin is stripped for eventPokemon names, and a time-format pin for date/startTime/endTime.
+// A :lang pin is stripped for eventPokemon names and for monthName/weekday.
+// A time-format pin is stripped for date/startTime/endTime.
 // Any other suffix is left in place so the key is not treated as that builtin.
 func baseKey(key string) string {
-	rest, suffix, has := splitSuffix(key)
+	rest, _, has := splitSuffix(key)
 	base, _, _ := pokemon.SplitIndex(rest)
-	if has && !strings.EqualFold(strings.TrimSpace(base), "eventPokemon") && !isTimeLayout(base) {
+	if has && !recognizedSuffixBase(base) {
 		return strings.TrimSpace(key)
 	}
-	_ = suffix
 	return base
 }
 
@@ -129,7 +148,7 @@ func CanonicalKey(key string) string {
 		return trimmed
 	}
 	if hasSuffix && !keepSuffix(c, suffix) {
-		if strings.EqualFold(c, "eventPokemon") || isTimeLayout(c) {
+		if recognizedSuffixBase(c) {
 			if has {
 				return fmt.Sprintf("%s[%d]", c, idx)
 			}
@@ -142,7 +161,13 @@ func CanonicalKey(key string) string {
 		out = fmt.Sprintf("%s[%d]", c, idx)
 	}
 	if hasSuffix && keepSuffix(c, suffix) {
-		out += ":" + suffix
+		pin := suffix
+		if isCalendarName(c) {
+			if n := languages.Normalize(suffix); n != "" {
+				pin = n
+			}
+		}
+		out += ":" + pin
 	}
 	return out
 }
@@ -213,6 +238,7 @@ func ResolveBuiltins(ctx Context) map[string]string {
 		"dateShort": "",
 		"year":      "",
 		"month":     "",
+		"monthName": "",
 		"day":       "",
 		"weekday":   "",
 		"startTime": "",
@@ -231,7 +257,7 @@ func ResolveBuiltins(ctx Context) map[string]string {
 		out["year"] = local.Format("2006")
 		out["month"] = local.Format("01")
 		out["day"] = local.Format("02")
-		out["weekday"] = local.Format("Monday")
+		applyCalendarNames(out, local, ctx.Language)
 		out["startTime"] = local.Format("15:04")
 		for _, id := range timeformat.IDs() {
 			pieces, ok := timeformat.Layout(id, local)
@@ -242,6 +268,7 @@ func ResolveBuiltins(ctx Context) map[string]string {
 			out["startTime:"+id] = pieces.Time
 		}
 	} else {
+		clearCalendarNames(out)
 		for _, id := range timeformat.IDs() {
 			out["date:"+id] = ""
 			out["startTime:"+id] = ""
@@ -344,7 +371,7 @@ func lookupUnscoped(values map[string]string, key string) (string, bool) {
 		return "", false
 	}
 	base, idx, hasIdx := pokemon.SplitIndex(rest)
-	if !strings.EqualFold(strings.TrimSpace(base), "eventPokemon") && !isTimeLayout(base) {
+	if !recognizedSuffixBase(base) {
 		return "", false
 	}
 	if keepSuffix(base, suffix) {

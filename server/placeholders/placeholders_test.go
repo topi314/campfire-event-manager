@@ -174,6 +174,38 @@ func TestApplyPinnedEventPokemonLanguage(t *testing.T) {
 	}
 }
 
+func TestCalendarNames(t *testing.T) {
+	start := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC) // Friday
+	de := ResolveBuiltins(Context{EventTime: start, TimeZone: "UTC", Language: "de"})
+	if de["month"] != "10" || de["day"] != "02" {
+		t.Fatalf("month=%q day=%q", de["month"], de["day"])
+	}
+	if de["monthName"] != "Oktober" || de["weekday"] != "Freitag" {
+		t.Fatalf("monthName=%q weekday=%q", de["monthName"], de["weekday"])
+	}
+	if de["monthName:fr"] != "octobre" || de["weekday:fr"] != "vendredi" {
+		t.Fatalf("fr monthName=%q weekday=%q", de["monthName:fr"], de["weekday:fr"])
+	}
+	if de["weekday:en"] != "Friday" || de["monthName:en"] != "October" {
+		t.Fatalf("en monthName=%q weekday=%q", de["monthName:en"], de["weekday:en"])
+	}
+
+	en := ResolveBuiltins(Context{EventTime: start, TimeZone: "UTC"})
+	if en["monthName"] != "October" || en["weekday"] != "Friday" {
+		t.Fatalf("empty lang monthName=%q weekday=%q", en["monthName"], en["weekday"])
+	}
+
+	got := Apply("{{weekday:FIL}} {{monthName:nope}} {{Weekday}}", de)
+	if got != "Biyernes Oktober Freitag" {
+		t.Fatalf("apply=%q", got)
+	}
+
+	empty := ResolveBuiltins(Context{Language: "de"})
+	if empty["monthName"] != "" || empty["weekday"] != "" || empty["weekday:de"] != "" {
+		t.Fatalf("zero time monthName=%q weekday=%q pin=%q", empty["monthName"], empty["weekday"], empty["weekday:de"])
+	}
+}
+
 func TestApplyStyledPlaceholder(t *testing.T) {
 	bold := "{{" + applyLetterStyle("club", styleBold, false, false) + "}}"
 	got := Apply("Hi "+bold, map[string]string{"club": "PoGo"})

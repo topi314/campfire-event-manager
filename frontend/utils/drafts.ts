@@ -42,6 +42,7 @@ export function resolveDraftTextFields(
     startTime: start ? formatTimeOfDay(start) : "",
     endTime: end ? formatTimeOfDay(end) : "",
     timeZone: timeZone || "",
+    language: item.language || "",
     title: item.name || "",
     address: item.address || "",
     latitude: item.location?.lat ?? null,

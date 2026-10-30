@@ -137,6 +137,15 @@ onBeforeUnmount(() => {
               <code v-pre>{{startTime}}</code> / <code v-pre>{{endTime}}</code> are
               <code>15:45</code>. An unknown id falls back to that default.
             </p>
+            <p class="muted section-p">
+              <code v-pre>{{monthName}}</code> is the month name and
+              <code v-pre>{{weekday}}</code> is the weekday name, both in the meetup
+              language (for this date, <code>October</code> and <code>Sunday</code> in
+              English). A template language code after a colon locks the language:
+              <code v-pre>{{monthName:de}}</code> is <code>Oktober</code> and
+              <code v-pre>{{weekday:de}}</code> is <code>Sonntag</code>. An unknown code
+              falls back to the meetup language.
+            </p>
             <table class="help-table">
               <thead>
                 <tr>

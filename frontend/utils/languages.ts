@@ -111,8 +111,12 @@ function resolveCode(code: string): TemplateLanguageCode | "" {
   return "";
 }
 
+export function normalizeTemplateLanguage(code: string): TemplateLanguageCode | "" {
+  return resolveCode(code);
+}
+
 export function isTemplateLanguageCode(code: string): code is TemplateLanguageCode {
-  return resolveCode(code) !== "";
+  return normalizeTemplateLanguage(code) !== "";
 }
 
 export function templateLanguageLabel(code: string | null | undefined): string {

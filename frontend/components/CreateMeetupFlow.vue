@@ -476,6 +476,7 @@ function builtinPlaceholderContext() {
     startTime: clockFromLocalInput(draft.eventTime) || p?.startTime || "",
     endTime: clockFromLocalInput(draft.eventEndTime) || p?.endTime || "",
     timeZone: timeZone.value,
+    language: meetupLanguage.value || "",
     title: draft.name || "",
     address: draft.address || "",
     latitude: draftLocation.value?.lat ?? null,

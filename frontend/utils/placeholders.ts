@@ -1,7 +1,17 @@
+import calendarNames from "../../server/placeholders/calendar_names.json";
 import { layoutPieces } from "~/utils/datetime";
-import { POKEMON_NAME_LANGUAGES, templateLanguageLabel } from "~/utils/languages";
+import {
+  normalizeTemplateLanguage,
+  POKEMON_NAME_LANGUAGES,
+  TEMPLATE_LANGUAGES,
+  templateLanguageLabel,
+} from "~/utils/languages";
 import { applyLetterStyle, findStyledTokens } from "~/utils/unicodeStyle";
 import { isTimeFormatId, TIME_FORMAT_IDS, type TimeFormatId } from "~/utils/timeFormats";
+
+type CalendarNameRow = { months: string[]; weekdays: string[] };
+
+const calendarNameTable = calendarNames as Record<string, CalendarNameRow>;
 
 export type PlaceholderDef = {
   key: string;
@@ -29,6 +39,8 @@ export type BuiltinPlaceholderContext = {
   startTime?: string;
   endTime?: string;
   timeZone?: string;
+  /** Meetup language for monthName and weekday. */
+  language?: string;
   /** Meetup title / name field. */
   title?: string;
   /** Free-text address field. */
@@ -135,6 +147,13 @@ export const BUILTIN_PLACEHOLDERS: BuiltinPlaceholder[] = [
     group: "core",
   },
   {
+    key: "monthName",
+    label: "Month name",
+    description: "Meetup calendar month as a name in the meetup language.",
+    example: "October",
+    group: "core",
+  },
+  {
     key: "day",
     label: "Day",
     description: "Meetup calendar day of the month as a number (01–31).",
@@ -144,7 +163,7 @@ export const BUILTIN_PLACEHOLDERS: BuiltinPlaceholder[] = [
   {
     key: "weekday",
     label: "Weekday",
-    description: "Weekday name for the meetup day.",
+    description: "Weekday name for the meetup day, in the meetup language.",
     example: "Wednesday",
     group: "core",
   },
@@ -309,6 +328,20 @@ function isTimeLayoutBase(base: string): boolean {
   return TIME_LAYOUT_KEYS.has(normalizePlaceholderKey(base));
 }
 
+function isCalendarNameBase(base: string): boolean {
+  const n = normalizePlaceholderKey(base);
+  return n === "monthname" || n === "weekday";
+}
+
+function recognizedSuffixBase(base: string): boolean {
+  return isEventPokemonNameBase(base) || isTimeLayoutBase(base) || isCalendarNameBase(base);
+}
+
+function calendarLanguagePin(suffix: string | null): string | null {
+  if (!suffix) return null;
+  return normalizeTemplateLanguage(suffix) || null;
+}
+
 /** Split any trailing :suffix, including time-format ids such as dmy-dot-24. */
 export function splitPlaceholderSuffix(key: string): { rest: string; suffix: string | null } {
   const trimmed = key.trim();
@@ -320,6 +353,7 @@ export function splitPlaceholderSuffix(key: string): { rest: string; suffix: str
 function keptSuffix(base: string, suffix: string | null): string | null {
   if (!suffix) return null;
   if (isEventPokemonNameBase(base) && LANG_SUFFIX_RE.test(`:${suffix}`)) return suffix;
+  if (isCalendarNameBase(base)) return calendarLanguagePin(suffix);
   if (isTimeLayoutBase(base) && isTimeFormatId(suffix)) return suffix;
   return null;
 }
@@ -332,7 +366,7 @@ export function canonicalPlaceholderKey(key: string): string {
   if (!canonBase) return trimmed;
   const pin = keptSuffix(canonBase, suffix);
   if (suffix && !pin) {
-    if (isEventPokemonNameBase(canonBase) || isTimeLayoutBase(canonBase)) {
+    if (recognizedSuffixBase(canonBase)) {
       return index != null ? `${canonBase}[${index}]` : canonBase;
     }
     return trimmed;
@@ -345,12 +379,7 @@ export function canonicalPlaceholderKey(key: string): string {
 export function isBuiltinPlaceholder(key: string): boolean {
   const { rest, suffix } = splitPlaceholderSuffix(key);
   const { base } = splitPlaceholderIndex(rest);
-  if (
-    suffix &&
-    !keptSuffix(base, suffix) &&
-    !isEventPokemonNameBase(base) &&
-    !isTimeLayoutBase(base)
-  ) {
+  if (suffix && !keptSuffix(base, suffix) && !recognizedSuffixBase(base)) {
     return false;
   }
   return builtinByNorm.has(normalizePlaceholderKey(base));
@@ -403,12 +432,45 @@ function formatReadableDate(day: { year: number; month: number; day: number }): 
   }
 }
 
-function formatWeekday(day: { year: number; month: number; day: number }): string {
-  try {
-    const d = new Date(Date.UTC(day.year, day.month - 1, day.day, 12));
-    return new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" }).format(d);
-  } catch {
-    return "";
+function weekdayIndex(day: { year: number; month: number; day: number }): number {
+  return new Date(Date.UTC(day.year, day.month - 1, day.day, 12)).getUTCDay();
+}
+
+function calendarName(code: string | undefined, month: number, weekday: number): {
+  monthName: string;
+  weekday: string;
+} {
+  const lang = normalizeTemplateLanguage(code || "") || "en";
+  const set = calendarNameTable[lang] || calendarNameTable.en;
+  return {
+    monthName: set?.months[month - 1] || "",
+    weekday: set?.weekdays[weekday] || "",
+  };
+}
+
+function fillCalendarNames(
+  out: Record<string, string>,
+  date: { year: number; month: number; day: number } | undefined,
+  language: string | undefined,
+) {
+  const codes = Object.keys(calendarNameTable);
+  if (!date) {
+    out.monthName = "";
+    out.weekday = "";
+    for (const code of codes) {
+      out[`monthName:${code}`] = "";
+      out[`weekday:${code}`] = "";
+    }
+    return;
+  }
+  const weekday = weekdayIndex(date);
+  const own = calendarName(language, date.month, weekday);
+  out.monthName = own.monthName;
+  out.weekday = own.weekday;
+  for (const code of codes) {
+    const named = calendarName(code, date.month, weekday);
+    out[`monthName:${code}`] = named.monthName;
+    out[`weekday:${code}`] = named.weekday;
   }
 }
 
@@ -439,20 +501,19 @@ export function resolveBuiltinPlaceholderValues(
     byCanonical.year = String(ctx.date.year);
     byCanonical.month = pad(ctx.date.month);
     byCanonical.day = pad(ctx.date.day);
-    byCanonical.weekday = formatWeekday(ctx.date);
   } else {
     byCanonical.date = "";
     byCanonical.dateShort = "";
     byCanonical.year = "";
     byCanonical.month = "";
     byCanonical.day = "";
-    byCanonical.weekday = "";
   }
 
   const out: Record<string, string> = {};
   for (const b of BUILTIN_PLACEHOLDERS) {
     out[b.key] = byCanonical[b.key] ?? "";
   }
+  fillCalendarNames(out, ctx.date, ctx.language);
   const clock = (raw: string | undefined) => {
     const m = /^(\d{1,2}):(\d{2})$/.exec((raw || "").trim());
     if (!m) return null;
@@ -599,14 +660,15 @@ function lookupPinnedLang(
 }
 
 function resolvePlaceholderValue(key: string, values: Record<string, string>): string | null {
-  const v = lookupPlaceholderValue(values, key);
+  const canon = canonicalPlaceholderKey(key);
+  const v = lookupPlaceholderValue(values, canon);
   if (v != null) return v;
-  const pinned = lookupPinnedLang(values, key);
+  const pinned = lookupPinnedLang(values, canon);
   if (pinned != null) return pinned;
-  const { rest, suffix } = splitPlaceholderSuffix(key);
+  const { rest, suffix } = splitPlaceholderSuffix(canon);
   if (suffix) {
     const { base } = splitPlaceholderIndex(rest);
-    if (isEventPokemonNameBase(base) || isTimeLayoutBase(base)) {
+    if (recognizedSuffixBase(base)) {
       const unscoped = lookupPlaceholderValue(values, rest);
       if (unscoped != null) return unscoped;
     }
@@ -665,7 +727,7 @@ type EventPokemonIndex = { index: number; name: string };
 
 type SuggestionQuery =
   | { kind: "prefix"; text: string }
-  | { kind: "name-lang"; langPrefix: string }
+  | { kind: "name-lang"; base: string; langPrefix: string }
   | {
       kind: "indexed";
       base: string;
@@ -681,6 +743,10 @@ const POKEMON_LANG_OPTIONS = POKEMON_NAME_LANGUAGES.map((code) => ({
   code,
   label: templateLanguageLabel(code),
 })).sort((a, b) => a.label.localeCompare(b.label, "en"));
+
+const CALENDAR_LANG_OPTIONS = [...TEMPLATE_LANGUAGES].sort((a, b) =>
+  a.label.localeCompare(b.label, "en"),
+);
 
 /**
  * Indexes that resolve to a value, keyed by normalized event-Pokémon base.
@@ -721,9 +787,13 @@ function parseSuggestionQuery(query: string): SuggestionQuery | null {
   if (bracket < 0) {
     const colon = q.indexOf(":");
     if (colon < 0) return { kind: "prefix", text: q };
+    const head = q.slice(0, colon);
     const langPrefix = q.slice(colon + 1);
-    if (q.slice(0, colon) !== "eventpokemon" || !LANG_PREFIX_RE.test(langPrefix)) return null;
-    return { kind: "name-lang", langPrefix };
+    if (!LANG_PREFIX_RE.test(langPrefix)) return null;
+    if (head === "eventpokemon" || head === "monthname" || head === "weekday") {
+      return { kind: "name-lang", base: head, langPrefix };
+    }
+    return null;
   }
 
   const after = q.slice(bracket + 1);
@@ -745,10 +815,11 @@ function languageSuggestions(
   label: string,
   langPrefix: string,
   values: Record<string, string> | null | undefined,
+  langs: readonly { code: string; label: string }[],
 ): PlaceholderSuggestion[] {
   const prefix = langPrefix.toLowerCase();
   const out: PlaceholderSuggestion[] = [];
-  for (const lang of POKEMON_LANG_OPTIONS) {
+  for (const lang of langs) {
     if (prefix && !lang.code.startsWith(prefix) && !lang.label.toLowerCase().startsWith(prefix)) {
       continue;
     }
@@ -814,9 +885,14 @@ export function filterPlaceholderSuggestions(
   const indexesFor = (key: string) => indexesByBase?.[normalizePlaceholderKey(key)] ?? [];
 
   if (parsed.kind === "name-lang") {
-    const item = catalog.find((entry) => isEventPokemonNameBase(entry.key));
+    const item = catalog.find((entry) => entry.key.toLowerCase() === parsed.base);
     if (!item) return [];
-    return languageSuggestions(item.key, item.label || item.key, parsed.langPrefix, eventPokemonValues);
+    const label = item.label || item.key;
+    if (isCalendarNameBase(item.key)) {
+      return languageSuggestions(item.key, label, parsed.langPrefix, eventPokemonValues, CALENDAR_LANG_OPTIONS);
+    }
+    if (!isEventPokemonNameBase(item.key)) return [];
+    return languageSuggestions(item.key, label, parsed.langPrefix, eventPokemonValues, POKEMON_LANG_OPTIONS);
   }
 
   if (parsed.kind === "prefix") {
@@ -830,7 +906,10 @@ export function filterPlaceholderSuggestions(
         out.push(...indexSuggestions(item, "", indexesFor(item.key)));
       }
       if (isEventPokemonNameBase(item.key)) {
-        out.push(...languageSuggestions(item.key, item.label || item.key, "", eventPokemonValues));
+        out.push(...languageSuggestions(item.key, item.label || item.key, "", eventPokemonValues, POKEMON_LANG_OPTIONS));
+      }
+      if (isCalendarNameBase(item.key)) {
+        out.push(...languageSuggestions(item.key, item.label || item.key, "", eventPokemonValues, CALENDAR_LANG_OPTIONS));
       }
     }
     return out;
@@ -842,13 +921,13 @@ export function filterPlaceholderSuggestions(
   if (parsed.langPrefix != null) {
     const pin = languagePin(item, parsed.indexDigits, indexes, indexesKnown);
     return pin
-      ? languageSuggestions(pin.head, pin.label, parsed.langPrefix, eventPokemonValues)
+      ? languageSuggestions(pin.head, pin.label, parsed.langPrefix, eventPokemonValues, POKEMON_LANG_OPTIONS)
       : [];
   }
   const out = indexSuggestions(item, parsed.indexDigits, indexes);
   if (!parsed.closed) return out;
   const pin = languagePin(item, parsed.indexDigits, indexes, indexesKnown);
-  if (pin) out.push(...languageSuggestions(pin.head, pin.label, "", eventPokemonValues));
+  if (pin) out.push(...languageSuggestions(pin.head, pin.label, "", eventPokemonValues, POKEMON_LANG_OPTIONS));
   return out;
 }
 

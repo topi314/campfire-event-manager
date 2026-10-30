@@ -271,6 +271,7 @@ func applyLetterStyle(text string, style letterStyle, underline, strike bool) st
 }
 
 func lookupResolved(key string, values map[string]string) (string, bool) {
+	key = CanonicalKey(key)
 	if v, ok := Lookup(values, key); ok {
 		return v, true
 	}

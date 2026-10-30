@@ -176,7 +176,9 @@ or a wrapped file:
 }
 ```
 
-Use `{{key}}` or `{{key[1]}}` in title, description, address, or cover URL. Built-in keys (`club`, `liveEvent`, `category`, `title`, `address`, `lat`, `lng`, `date`, `dateShort`, `weekday`, `startTime`, `endTime`, `timezone`, plus event-Pokémon keys below) fill automatically when the meetup is **posted** to Campfire (and in Preview). Drafts keep the `{{…}}` tokens.
+Use `{{key}}` or `{{key[1]}}` in title, description, address, or cover URL. Built-in keys (`club`, `liveEvent`, `category`, `title`, `address`, `lat`, `lng`, `date`, `dateShort`, `year`, `month`, `monthName`, `day`, `weekday`, `startTime`, `endTime`, `timezone`, plus event-Pokémon keys below) fill automatically when the meetup is **posted** to Campfire (and in Preview). Drafts keep the `{{…}}` tokens.
+
+`{{monthName}}` is the long month name and `{{weekday}}` is the weekday name, both in the meetup language. `{{monthName:de}}` and `{{weekday:es}}` lock a template language code. An unknown code falls back to the meetup language. For 18 Oct 2026 they are `October` and `Sunday` in English, and `Oktober` and `Sonntag` in German.
 
 `{{date}}`, `{{startTime}}`, and `{{endTime}}` accept a time-format id (the same ids as Settings): `{{date:dmy-dot-24}}`, `{{startTime:mdy-12}}`, `{{endTime:dmy-h}}`. `{{date:id}}` is the date half. `{{startTime:id}}` and `{{endTime:id}}` are the clock half, and they share a clock for a given id. Examples below are for 18 Oct 2026 at 15:45. Without an id, `{{date}}` is `Oct 18, 2026`, `{{dateShort}}` is `2026-10-18`, and `{{startTime}}` / `{{endTime}}` are `15:45`. An unknown id falls back to that default.
 

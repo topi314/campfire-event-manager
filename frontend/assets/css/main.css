@@ -264,6 +264,10 @@ label {
   display: block;
 }
 
+a.icon-btn.router-link-exact-active {
+  color: var(--accent);
+}
+
 .icon-gear {
   width: 1.25rem;
   height: 1.25rem;

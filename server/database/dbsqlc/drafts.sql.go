@@ -12,14 +12,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const clearDraftsByClubIDs = `-- name: ClearDraftsByClubIDs :exec
+const clearDraftsByClubIDs = `-- name: ClearDraftsByClubIDs :execrows
 DELETE FROM meetup_draft
 WHERE draft_club_id = ANY($1::text[])
 `
 
-func (q *Queries) ClearDraftsByClubIDs(ctx context.Context, clubIds []string) error {
-	_, err := q.db.Exec(ctx, clearDraftsByClubIDs, clubIds)
-	return err
+func (q *Queries) ClearDraftsByClubIDs(ctx context.Context, clubIds []string) (int64, error) {
+	result, err := q.db.Exec(ctx, clearDraftsByClubIDs, clubIds)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const createDraft = `-- name: CreateDraft :one

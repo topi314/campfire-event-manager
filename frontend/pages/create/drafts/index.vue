@@ -288,15 +288,14 @@ function edit(id: number) {
 
 async function postItem(item: MeetupDraftItem) {
   const payload = parseDraftPayload(item);
-  const body = buildMeetupBodyFromDraft(payload, timeZone.value);
+  const body = {
+    ...buildMeetupBodyFromDraft(payload, timeZone.value),
+    draftId: item.id,
+  };
   const event = await api<{ id: string; name: string }>("/api/campfire/meetups", {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(body),
-  });
-  await api(`/api/drafts/${item.id}`, {
-    method: "DELETE",
-    headers: authHeaders(),
   });
   drafts.value = drafts.value.filter((d) => d.id !== item.id);
   toggleSelected(item.id, false);

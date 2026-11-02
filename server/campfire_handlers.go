@@ -232,6 +232,7 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		TimeZone                     string            `json:"timeZone"`
 		Language                     string            `json:"language"`
 		PlaceholderValues            map[string]string `json:"placeholderValues"`
+		DraftID                      *int64            `json:"draftId"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
@@ -337,6 +338,10 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		slog.ErrorContext(r.Context(), "create activity reminder returned no event", slog.String("clubId", clubID))
 		writeError(w, http.StatusBadGateway, "Could not create the meetup. Try again, or reach out on Discord if it keeps happening.")
 		return
+	}
+	s.recordStat(r.Context(), statMeetupCreated, 1)
+	if body.DraftID != nil && *body.DraftID > 0 && s.removeDraft(r, *body.DraftID) {
+		s.recordStat(r.Context(), statDraftPublished, 1)
 	}
 	writeJSON(w, http.StatusCreated, event)
 }
@@ -472,6 +477,7 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 		writeCampfireError(w, err)
 		return
 	}
+	s.recordStat(r.Context(), statMeetupEdited, 1)
 	writeJSON(w, http.StatusOK, event)
 }
 
@@ -496,6 +502,7 @@ func (s *Server) campfireDeleteMeetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "deleteEvent did not succeed")
 		return
 	}
+	s.recordStat(r.Context(), statMeetupDeleted, 1)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "id": eventID})
 }
 

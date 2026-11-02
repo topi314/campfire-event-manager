@@ -66,6 +66,14 @@ watch(token, async (t, prev) => {
         </nav>
       </div>
       <div class="topbar-actions">
+        <NuxtLink to="/stats" class="icon-btn" title="Stats" aria-label="Stats">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M4 20h16v1.5H4V20Zm1.5-3.5h3.5V20H5.5v-3.5Zm5-5.5h3.5V20h-3.5V11Zm5-6h3.5V20H15.5V5Z"
+            />
+          </svg>
+        </NuxtLink>
         <button
           type="button"
           class="icon-btn"

@@ -65,6 +65,6 @@ RETURNING
 DELETE FROM meetup_draft
 WHERE draft_id = $1;
 
--- name: ClearDraftsByClubIDs :exec
+-- name: ClearDraftsByClubIDs :execrows
 DELETE FROM meetup_draft
 WHERE draft_club_id = ANY(sqlc.arg('club_ids')::text[]);

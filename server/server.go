@@ -81,6 +81,7 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("POST /auth/logout", s.logout)
 	mux.HandleFunc("POST /logout", s.logout) // alias
 	mux.HandleFunc("GET /api/me", s.requireAuth(s.apiMe))
+	mux.HandleFunc("GET /api/stats", s.requireAuth(s.apiStats))
 	mux.HandleFunc("PATCH /api/me", s.requireAuth(s.apiUpdateMe))
 	mux.HandleFunc("PUT /api/me/campfire-token", s.requireAuth(s.apiPutCampfireToken))
 

@@ -16,3 +16,8 @@ type CoverImage struct {
 	CoverData          []byte
 	CoverCreatedAt     pgtype.Timestamp
 }
+
+type Stat struct {
+	StatKind  string
+	StatCount int64
+}

@@ -105,6 +105,7 @@ func (s *Server) createTemplateRow(ctx context.Context, userID, name string, pay
 	if err != nil {
 		return MeetupTemplate{}, err
 	}
+	s.recordStat(ctx, statTemplateCreated, 1)
 	t := templateFromCreate(row)
 	if originID != nil {
 		full, err := s.db.GetTemplateForUser(ctx, dbsqlc.GetTemplateForUserParams{
@@ -206,6 +207,7 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load template")
 		return
 	}
+	s.recordStat(r.Context(), statTemplateEdited, 1)
 	writeJSON(w, http.StatusOK, templateWithOriginGet(full))
 }
 
@@ -228,6 +230,7 @@ func (s *Server) deleteTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "template not found")
 		return
 	}
+	s.recordStat(r.Context(), statTemplateDeleted, n)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -690,6 +693,7 @@ func (s *Server) importTemplates(w http.ResponseWriter, r *http.Request) {
 				byID[t.ID] = ptrString(t.Language)
 				results = append(results, imported{Name: t.Name, ID: t.ID, Updated: true})
 				updatedCount++
+				s.recordStat(r.Context(), statTemplateEdited, 1)
 				continue
 			}
 

@@ -177,6 +177,8 @@ export type CreateMeetupInput = {
   /** Language for eventPokemon translation (create-time override or template default). */
   language?: string;
   placeholderValues?: Record<string, string>;
+  /** Set when this meetup is posted from a saved draft. */
+  draftId?: number;
 };
 
 export type EditMeetupInput = {

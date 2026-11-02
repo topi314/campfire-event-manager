@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -128,6 +129,7 @@ func (s *Server) createDraft(w http.ResponseWriter, r *http.Request) {
 		item = draftFromGet(full)
 	}
 	writeJSON(w, http.StatusCreated, item)
+	s.recordStat(r.Context(), statDraftCreated, 1)
 }
 
 func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request) {
@@ -198,6 +200,7 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request) {
 		item = draftFromGet(full)
 	}
 	writeJSON(w, http.StatusOK, item)
+	s.recordStat(r.Context(), statDraftEdited, 1)
 }
 
 func (s *Server) deleteDraft(w http.ResponseWriter, r *http.Request) {
@@ -229,7 +232,29 @@ func (s *Server) deleteDraft(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "draft not found")
 		return
 	}
+	s.recordStat(r.Context(), statDraftDeleted, n)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// removeDraft deletes a draft without counting it as a draft delete.
+// Used when the draft was posted as an event.
+func (s *Server) removeDraft(r *http.Request, id int64) bool {
+	existingRow, err := s.db.GetDraft(r.Context(), id)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "load draft for publish failed", slog.Int64("draftId", id), slog.Any("err", err))
+		return false
+	}
+	existing := draftFromGet(existingRow)
+	if _, status, msg := s.requireAdminOfClub(r, existing.ClubID); status != 0 {
+		slog.ErrorContext(r.Context(), "draft publish not allowed", slog.Int64("draftId", id), slog.String("msg", msg))
+		return false
+	}
+	n, err := s.db.DeleteDraft(r.Context(), id)
+	if err != nil || n == 0 {
+		slog.ErrorContext(r.Context(), "delete published draft failed", slog.Int64("draftId", id), slog.Any("err", err))
+		return false
+	}
+	return true
 }
 
 func (s *Server) clearDrafts(w http.ResponseWriter, r *http.Request) {
@@ -242,9 +267,11 @@ func (s *Server) clearDrafts(w http.ResponseWriter, r *http.Request) {
 		writeCampfireError(w, err)
 		return
 	}
-	if err := s.db.ClearDraftsByClubIDs(r.Context(), ids); err != nil {
+	n, err := s.db.ClearDraftsByClubIDs(r.Context(), ids)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to clear drafts")
 		return
 	}
+	s.recordStat(r.Context(), statDraftDeleted, n)
 	w.WriteHeader(http.StatusNoContent)
 }

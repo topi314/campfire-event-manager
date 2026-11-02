@@ -1676,29 +1676,27 @@ async function createMeetup() {
   error.value = "";
   success.value = "";
   try {
-    const body = buildMeetupBodyFromDraft(
-      buildDraftPayload(),
-      timeZone.value,
-      meetupLanguage.value || undefined,
-    );
+    const body = {
+      ...buildMeetupBodyFromDraft(
+        buildDraftPayload(),
+        timeZone.value,
+        meetupLanguage.value || undefined,
+      ),
+      ...(editingDraftId.value != null ? { draftId: editingDraftId.value } : {}),
+    };
     const event = await api<{ id: string; name: string }>("/api/campfire/meetups", {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify(body),
     });
     toast.success("Meetup posted", event.name || undefined);
-    const postedDraftId = editingDraftId.value;
-    if (postedDraftId != null) {
+    if (editingDraftId.value != null) {
+      editingDraftId.value = null;
       try {
-        await api(`/api/drafts/${postedDraftId}`, {
-          method: "DELETE",
-          headers: authHeaders(),
-        });
         await loadDrafts();
       } catch {
-        /* draft cleanup is best-effort */
+        /* list refresh is best-effort */
       }
-      editingDraftId.value = null;
     }
     resetFormAfterDraft();
     if (props.draftId != null) await navigateTo("/create");

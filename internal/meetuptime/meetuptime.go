@@ -283,3 +283,17 @@ func WallToUTC(raw, timeZone string) (time.Time, error) {
 func FormatRFC3339(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
+
+// LiveEventWindow is the live-event interval as wall clocks in zone.
+func LiveEventWindow(ev LiveEventFields, zone string) (string, string, bool) {
+	loc, err := LoadLocation(zone)
+	if err != nil {
+		return "", "", false
+	}
+	startAt, okStart := ParseCampfireInstant(ev.StartTimestamp)
+	endAt, okEnd := ParseCampfireInstant(ev.EndTimestamp)
+	if !okStart || !okEnd || endAt.Before(startAt) {
+		return "", "", false
+	}
+	return startAt.In(loc).Format("2006-01-02T15:04"), endAt.In(loc).Format("2006-01-02T15:04"), true
+}

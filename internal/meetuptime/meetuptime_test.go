@@ -151,6 +151,23 @@ func TestParseCampfireInstantTreatsNaiveAsUTC(t *testing.T) {
 	}
 }
 
+func TestLiveEventWindowInZone(t *testing.T) {
+	ev := LiveEventFields{
+		StartTimestamp: "2026-11-21T08:00:00.000Z",
+		EndTimestamp:   "2026-11-21T19:59:00.000Z",
+		LocalStartTime: "2026-11-21T09:00:00.000",
+		LocalEndTime:   "2026-11-21T20:59:00.000",
+	}
+	berlinStart, berlinEnd, ok := LiveEventWindow(ev, "Europe/Berlin")
+	if !ok || berlinStart != "2026-11-21T09:00" || berlinEnd != "2026-11-21T20:59" {
+		t.Fatalf("berlin %s–%s ok=%v", berlinStart, berlinEnd, ok)
+	}
+	bakuStart, bakuEnd, ok := LiveEventWindow(ev, "Asia/Baku")
+	if !ok || bakuStart != "2026-11-21T12:00" || bakuEnd != "2026-11-21T23:59" {
+		t.Fatalf("baku %s–%s ok=%v", bakuStart, bakuEnd, ok)
+	}
+}
+
 func TestWallToUTCStillTreatsNaiveAsWallClock(t *testing.T) {
 	// Create/edit form values must stay wall-clock in the user zone — not UTC.
 	got, err := WallToUTC("2026-10-15T18:00", "Europe/Berlin")

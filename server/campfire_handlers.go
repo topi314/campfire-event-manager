@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/topi314/campfire-event-manager/internal/eventcategory"
+	"github.com/topi314/campfire-event-manager/internal/meetuptime"
 	"github.com/topi314/campfire-event-manager/server/campfire"
 )
 
@@ -77,10 +78,21 @@ func (s *Server) campfireLiveEvents(w http.ResponseWriter, r *http.Request) {
 		writeCampfireError(w, err)
 		return
 	}
+	zone := s.resolveTimeZone(r, "")
 	for i := range events {
 		cat := eventcategory.FromName(events[i].EventName)
 		events[i].Category = cat
 		events[i].FixedLocalHour = eventcategory.IsFixedLocalHour(cat)
+		start, end, ok := meetuptime.LiveEventWindow(meetuptime.LiveEventFields{
+			StartTimestamp: events[i].StartTimestamp,
+			EndTimestamp:   events[i].EndTimestamp,
+			LocalStartTime: events[i].LocalStartTime,
+			LocalEndTime:   events[i].LocalEndTime,
+		}, zone)
+		if ok {
+			events[i].WindowStart = start
+			events[i].WindowEnd = end
+		}
 	}
 	writeJSON(w, http.StatusOK, events)
 }

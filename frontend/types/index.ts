@@ -143,6 +143,9 @@ export type LiveEvent = {
   category?: string;
   /** Set by our API for Raid Hour / Spotlight Hour / Max Monday. */
   fixedLocalHour?: boolean;
+  /** Wall-clock window from our API, in the account timezone. */
+  windowStart?: string;
+  windowEnd?: string;
 };
 
 export type ClubMember = {

@@ -1,4 +1,5 @@
 import type { LiveEvent } from "~/types";
+import { localDateTimeDiffMs } from "~/utils/datetime";
 
 export type MeetupSchedule = {
   category: string;
@@ -17,6 +18,20 @@ export type MeetupScheduleRequest = {
     "eventName" | "startTimestamp" | "endTimestamp" | "localStartTime" | "localEndTime"
   > | null;
 };
+
+/** Server-provided live-event window. Missing bounds skip the check. */
+export function isWithinLiveEventWindow(
+  eventTime: string,
+  eventEndTime: string,
+  windowStart?: string | null,
+  windowEnd?: string | null,
+): boolean {
+  if (!windowStart || !windowEnd) return true;
+  const startOk = localDateTimeDiffMs(windowStart, eventTime);
+  const endOk = localDateTimeDiffMs(eventEndTime, windowEnd);
+  if (startOk == null || endOk == null) return true;
+  return startOk >= 0 && endOk >= 0;
+}
 
 /** Resolve meetup wall-clock times on the server (category defaults, live-event day). */
 export async function fetchMeetupSchedule(

@@ -16,8 +16,6 @@ import {
   ensureMinMeetupEnd,
   formatLocalDateTime,
   instantToLocalInput,
-  isMeetupWithinLiveEventWindow,
-  liveEventWindowBounds,
   MAX_MEETUP_DURATION_MINUTES,
   meetupDurationError,
   MIN_MEETUP_DURATION_MINUTES,
@@ -37,7 +35,7 @@ import {
 } from "~/utils/placeholders";
 import { DEFAULT_LOCATION_JITTER_METERS, parseCampfireLocation } from "~/utils/location";
 import { buildMeetupBodyFromDraft, parseDraftPayload } from "~/utils/drafts";
-import { fetchMeetupSchedule } from "~/utils/meetupSchedule";
+import { fetchMeetupSchedule, isWithinLiveEventWindow } from "~/utils/meetupSchedule";
 import { isCampfireTokenError } from "~/composables/useSessionToken";
 import { vGrow } from "~/utils/growTextarea";
 import {
@@ -251,20 +249,25 @@ async function loadCampfire() {
       return;
     }
     clubs.value = await api<Club[]>("/api/campfire/clubs", { headers: authHeaders() });
-    try {
-      liveEvents.value = await api<LiveEvent[]>("/api/campfire/live-events", {
-        headers: authHeaders(),
-      });
-    } catch (e: any) {
-      liveEvents.value = [];
-      console.warn("live events:", e.message);
-    }
+    await loadLiveEvents();
     applyDefaultSelections();
   } catch (e: any) {
     clubs.value = [];
     liveEvents.value = [];
     error.value = e.message || "Campfire token invalid";
     if (isCampfireTokenError(e)) invalidateToken();
+  }
+}
+
+async function loadLiveEvents() {
+  if (!token.value) return;
+  try {
+    liveEvents.value = await api<LiveEvent[]>("/api/campfire/live-events", {
+      headers: authHeaders(),
+    });
+  } catch (e: any) {
+    liveEvents.value = [];
+    console.warn("live events:", e.message);
   }
 }
 
@@ -1179,31 +1182,18 @@ const durationError = computed(() => {
 
 const selectedLiveEventWindowLabel = computed(() => {
   const ev = selectedLiveEvent.value;
-  if (!ev) return "";
-  const start = instantToLocalInput(ev.startTimestamp, timeZone.value);
-  const end = instantToLocalInput(ev.endTimestamp, timeZone.value);
-  if (!start || !end) return "";
-  return `${formatLocalDateTime(start, timeFormat.value)} - ${formatLocalDateTime(end, timeFormat.value)}`;
+  if (!ev?.windowStart || !ev.windowEnd) return "";
+  return `${formatLocalDateTime(ev.windowStart, timeFormat.value)} - ${formatLocalDateTime(ev.windowEnd, timeFormat.value)}`;
 });
 
 const liveEventWindowError = computed(() => {
   const ev = selectedLiveEvent.value;
-  if (!ev || !draft.eventTime || !draft.eventEndTime) return "";
-  if (!liveEventWindowBounds(ev)) return "";
-  if (
-    isMeetupWithinLiveEventWindow(
-      draft.eventTime,
-      draft.eventEndTime,
-      ev,
-      timeZone.value,
-    )
-  ) {
+  const label = selectedLiveEventWindowLabel.value;
+  if (!ev || !label || !draft.eventTime || !draft.eventEndTime) return "";
+  if (isWithinLiveEventWindow(draft.eventTime, draft.eventEndTime, ev.windowStart, ev.windowEnd)) {
     return "";
   }
-  const window = selectedLiveEventWindowLabel.value;
-  return window
-    ? `Outside live event window (${window})`
-    : "Outside live event window";
+  return `Outside live event window (${label})`;
 });
 
 function validateDraft(): string | null {
@@ -1222,6 +1212,14 @@ function validateDraft(): string | null {
   if (liveEventWindowError.value) return liveEventWindowError.value;
   return null;
 }
+
+watch(
+  () => user.value?.timeZone,
+  (next, prev) => {
+    if (!prev || !next || prev === next) return;
+    void loadLiveEvents();
+  },
+);
 
 watch(
   () => draft.eventTime,

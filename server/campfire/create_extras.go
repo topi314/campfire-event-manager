@@ -16,9 +16,12 @@ type LiveEvent struct {
 	LocalEndTime         string  `json:"localEndTime"`
 	ModalHeadingImageURL string  `json:"modalHeadingImageUrl"`
 	Location             *LatLng `json:"location"`
-	// Category / FixedLocalHour are filled by the API handler (not Campfire).
+	// Category / FixedLocalHour / window are filled by the API handler (not Campfire).
 	Category       string `json:"category,omitempty"`
 	FixedLocalHour bool   `json:"fixedLocalHour,omitempty"`
+	// WindowStart / WindowEnd are wall clocks (YYYY-MM-DDTHH:mm) in the account timezone.
+	WindowStart string `json:"windowStart,omitempty"`
+	WindowEnd   string `json:"windowEnd,omitempty"`
 }
 
 type LatLng struct {

@@ -384,6 +384,27 @@ export function meetupDurationError(start: string, end: string): string | null {
   return null;
 }
 
+/** True when a create start (wall clock in timeZone) is earlier than now. */
+export function isMeetupStartInPast(
+  local: string,
+  timeZone?: string,
+  now = new Date(),
+): boolean {
+  const iso = toISO(local, timeZone);
+  if (!iso) return false;
+  const start = new Date(iso).getTime();
+  if (Number.isNaN(start)) return false;
+  return start < now.getTime();
+}
+
+/** Earliest datetime-local value for a create start, in timeZone. */
+export function minMeetupStartInput(timeZone?: string, now = new Date()): string {
+  const wall = instantToLocalInput(now.toISOString(), timeZone);
+  if (!wall || !isMeetupStartInPast(wall, timeZone, now)) return wall;
+  // The field has no seconds, so the current minute already started in the past.
+  return addMinutesToLocal(wall, 1);
+}
+
 /**
  * Return an end datetime-local that is at least `minutes` after start.
  * If `end` already satisfies that, it is returned unchanged.

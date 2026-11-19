@@ -48,6 +48,97 @@ type gqlResp struct {
 	Errors []gqlErr        `json:"errors"`
 }
 
+// GraphQLError is a Campfire GraphQL failure. Code is extensions.code when Campfire sends one.
+type GraphQLError struct {
+	Message string
+	Code    int
+}
+
+func (e *GraphQLError) Error() string {
+	if e == nil {
+		return "graphql"
+	}
+	if e.Code != 0 {
+		return fmt.Sprintf("graphql: %s (code=%d)", e.Message, e.Code)
+	}
+	return "graphql: " + e.Message
+}
+
+const (
+	// ContentRejectedMessage is shown when Campfire's content filter returns code 303.
+	ContentRejectedMessage = "Campfire rejected this title, description, or address. Shorten the text or remove @mentions and unusual characters, then try again."
+	// StartInPastMessage is shown when Campfire rejects a meetup time that has already passed.
+	StartInPastMessage = "start time is in the past"
+)
+
+// ClientStatus maps a Campfire error onto an HTTP status and a message for the browser.
+// ok is false when the failure should stay an internal server error.
+func ClientStatus(err error) (status int, msg string, ok bool) {
+	var ge *GraphQLError
+	if errors.As(err, &ge) {
+		if ge.Code == 303 {
+			return http.StatusBadRequest, ContentRejectedMessage, true
+		}
+		if invalidTimeMessage(ge.Message) {
+			return http.StatusBadRequest, StartInPastMessage, true
+		}
+	}
+	if IsAuthError(err) {
+		return http.StatusUnauthorized, "invalid Campfire token", true
+	}
+	return 0, "", false
+}
+
+func invalidTimeMessage(msg string) bool {
+	for _, part := range strings.Split(msg, ";") {
+		p := strings.ToLower(strings.TrimSpace(part))
+		if p == "invalid time" || strings.HasPrefix(p, "invalid time ") || strings.HasPrefix(p, "invalid time(") {
+			return true
+		}
+	}
+	return false
+}
+
+func gqlErrCode(ext map[string]any) int {
+	if ext == nil {
+		return 0
+	}
+	switch v := ext["code"].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case json.Number:
+		n, err := v.Int64()
+		if err != nil {
+			return 0
+		}
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+func graphqlFailure(errs []gqlErr) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	msgs := make([]string, 0, len(errs))
+	code := 0
+	for _, e := range errs {
+		msgs = append(msgs, formatGqlErr(e))
+		c := gqlErrCode(e.Extensions)
+		if c == 303 {
+			code = 303
+			continue
+		}
+		if code == 0 && c != 0 {
+			code = c
+		}
+	}
+	return &GraphQLError{Message: strings.Join(msgs, "; "), Code: code}
+}
+
 func (c *Client) Do(ctx context.Context, token, query string, vars any, dest any) error {
 	var last error
 	for attempt := 0; attempt < c.retries; attempt++ {
@@ -123,15 +214,10 @@ func (c *Client) roundTrip(ctx context.Context, token, query string, vars any) (
 		return nil, err
 	}
 	if len(parsed.Errors) > 0 {
-		msgs := make([]string, 0, len(parsed.Errors))
-		for _, e := range parsed.Errors {
-			msgs = append(msgs, formatGqlErr(e))
-		}
-		joined := strings.Join(msgs, "; ")
+		gerr := graphqlFailure(parsed.Errors)
 		if parsed.Data == nil || bytes.Equal(parsed.Data, []byte("null")) {
-			err := fmt.Errorf("graphql: %s", joined)
-			logCampfireExchange(ctx, op, body, data, resp.StatusCode, err)
-			return nil, err
+			logCampfireExchange(ctx, op, body, data, resp.StatusCode, gerr)
+			return nil, gerr
 		}
 		slog.WarnContext(ctx, "graphql partial errors",
 			slog.String("operation", op),
@@ -243,6 +329,10 @@ func upstreamStatusError(status int) error {
 }
 
 func isRetryable(err error) bool {
+	var ge *GraphQLError
+	if errors.As(err, &ge) && ge.Code == 303 {
+		return false
+	}
 	if IsUnavailable(err) {
 		return true
 	}

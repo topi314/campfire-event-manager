@@ -3,6 +3,7 @@ package server
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestResolveMeetupCampfireTimesDuration(t *testing.T) {
@@ -43,5 +44,25 @@ func TestResolveMeetupCampfireTimesDuration(t *testing.T) {
 				t.Fatalf("err=%v, want %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestMeetupStartInPast(t *testing.T) {
+	now := time.Date(2026, 11, 19, 19, 42, 0, 0, time.UTC)
+	past, err := time.Parse(time.RFC3339, "2026-11-19T17:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !meetupStartInPast(past, now) {
+		t.Fatal("start 2h42m ago should be rejected")
+	}
+	if !meetupStartInPast(now.Add(-time.Second), now) {
+		t.Fatal("start one second ago should be rejected")
+	}
+	if meetupStartInPast(now, now) {
+		t.Fatal("start exactly now should be allowed")
+	}
+	if meetupStartInPast(now.Add(time.Hour), now) {
+		t.Fatal("future start should be allowed")
 	}
 }

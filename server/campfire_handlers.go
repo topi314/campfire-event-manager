@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/topi314/campfire-event-manager/internal/eventcategory"
 	"github.com/topi314/campfire-event-manager/internal/meetuptime"
@@ -268,6 +269,15 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid event time: "+err.Error())
 		return
 	}
+	startAt, err := time.Parse(time.RFC3339, eventTime)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid event time: "+err.Error())
+		return
+	}
+	if meetupStartInPast(startAt, time.Now()) {
+		writeError(w, http.StatusBadRequest, "start time is in the past")
+		return
+	}
 
 	name, details, address, cover := s.applyMeetupPlaceholders(
 		r,
@@ -309,7 +319,7 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 		var err error
 		avatar, err = s.resolveCoverAvatar(r.Context(), cover)
 		if err != nil {
-			writeError(w, http.StatusBadGateway, "failed to load cover image: "+err.Error())
+			writeError(w, http.StatusInternalServerError, "failed to load cover image: "+err.Error())
 			return
 		}
 	}
@@ -339,16 +349,20 @@ func (s *Server) campfireCreateMeetup(w http.ResponseWriter, r *http.Request) {
 	event, err := s.campfire.CreateActivityReminder(r.Context(), token, createInput)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "create activity reminder failed", slog.Any("err", err), slog.String("clubId", clubID))
-		if campfire.IsUnavailable(err) {
-			writeError(w, http.StatusBadGateway, campfire.UnavailableMessage)
+		if status, msg, ok := campfire.ClientStatus(err); ok {
+			writeError(w, status, msg)
 			return
 		}
-		writeError(w, http.StatusBadGateway, "Could not create the meetup. Try again, or reach out on Discord if it keeps happening.")
+		if campfire.IsUnavailable(err) {
+			writeError(w, http.StatusInternalServerError, campfire.UnavailableMessage)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "Could not create the meetup. Try again, or reach out on Discord if it keeps happening.")
 		return
 	}
 	if event == nil || event.ID == "" {
 		slog.ErrorContext(r.Context(), "create activity reminder returned no event", slog.String("clubId", clubID))
-		writeError(w, http.StatusBadGateway, "Could not create the meetup. Try again, or reach out on Discord if it keeps happening.")
+		writeError(w, http.StatusInternalServerError, "Could not create the meetup. Try again, or reach out on Discord if it keeps happening.")
 		return
 	}
 	s.recordStat(r.Context(), statMeetupCreated, 1)
@@ -453,7 +467,7 @@ func (s *Server) campfireEditMeetup(w http.ResponseWriter, r *http.Request) {
 		var err error
 		avatar, err = s.resolveCoverAvatar(r.Context(), cover)
 		if err != nil {
-			writeError(w, http.StatusBadGateway, "failed to load cover image: "+err.Error())
+			writeError(w, http.StatusInternalServerError, "failed to load cover image: "+err.Error())
 			return
 		}
 		cover = ""
@@ -511,7 +525,7 @@ func (s *Server) campfireDeleteMeetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !okDel {
-		writeError(w, http.StatusBadGateway, "deleteEvent did not succeed")
+		writeError(w, http.StatusInternalServerError, "deleteEvent did not succeed")
 		return
 	}
 	s.recordStat(r.Context(), statMeetupDeleted, 1)
@@ -536,7 +550,7 @@ func (s *Server) campfireMeetupShareLink(w http.ResponseWriter, r *http.Request)
 	}
 	shortID := campfire.ShortIDFromShareURL(shareURL)
 	if shortID == "" {
-		writeError(w, http.StatusBadGateway, "createLink returned url without short id")
+		writeError(w, http.StatusInternalServerError, "createLink returned url without short id")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{

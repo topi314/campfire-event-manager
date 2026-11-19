@@ -62,17 +62,17 @@ func (s *Server) geocodeSearch(w http.ResponseWriter, r *http.Request) {
 
 	res, err := s.httpClient.Do(req)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "geocode request failed")
+		writeError(w, http.StatusInternalServerError, "geocode request failed")
 		return
 	}
 	defer res.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "failed to read geocode response")
+		writeError(w, http.StatusInternalServerError, "failed to read geocode response")
 		return
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Sprintf("geocode upstream status %d", res.StatusCode))
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("geocode upstream status %d", res.StatusCode))
 		return
 	}
 
@@ -82,7 +82,7 @@ func (s *Server) geocodeSearch(w http.ResponseWriter, r *http.Request) {
 		Lon         string `json:"lon"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		writeError(w, http.StatusBadGateway, "invalid geocode response")
+		writeError(w, http.StatusInternalServerError, "invalid geocode response")
 		return
 	}
 

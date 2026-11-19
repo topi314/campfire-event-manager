@@ -16,8 +16,10 @@ import {
   ensureMinMeetupEnd,
   formatLocalDateTime,
   instantToLocalInput,
+  isMeetupStartInPast,
   MAX_MEETUP_DURATION_MINUTES,
   meetupDurationError,
+  minMeetupStartInput,
   MIN_MEETUP_DURATION_MINUTES,
   parseLocalDateTime,
 } from "~/utils/datetime";
@@ -1145,7 +1147,8 @@ const canCreate = computed(
     !!draft.eventTime &&
     !!draft.eventEndTime &&
     !!draft.name.trim() &&
-    !liveEventWindowError.value,
+    !liveEventWindowError.value &&
+    !startPastError.value,
 );
 
 const canSaveDraft = computed(
@@ -1180,6 +1183,15 @@ const durationError = computed(() => {
   return meetupDurationError(draft.eventTime, draft.eventEndTime) ?? "";
 });
 
+const minStartTime = computed(() =>
+  mode.value === "create" ? minMeetupStartInput(timeZone.value) : "",
+);
+
+const startPastError = computed(() => {
+  if (mode.value !== "create" || !draft.eventTime) return "";
+  return isMeetupStartInPast(draft.eventTime, timeZone.value) ? "start time is in the past" : "";
+});
+
 const selectedLiveEventWindowLabel = computed(() => {
   const ev = selectedLiveEvent.value;
   if (!ev?.windowStart || !ev.windowEnd) return "";
@@ -1206,6 +1218,9 @@ function validateDraft(): string | null {
   if (!draft.name.trim()) return "Title is required";
   if (!draft.eventTime) return "Start time is required";
   if (!draft.eventEndTime) return "End time is required";
+  if (mode.value === "create" && isMeetupStartInPast(draft.eventTime, timeZone.value)) {
+    return "start time is in the past";
+  }
   draft.eventEndTime = ensureMinMeetupEnd(draft.eventTime, draft.eventEndTime);
   const durationIssue = meetupDurationError(draft.eventTime, draft.eventEndTime);
   if (durationIssue) return durationIssue;
@@ -2008,7 +2023,13 @@ function templateOptionLabel(t: MeetupTemplate) {
           <div class="row-2">
             <div class="field">
               <label for="start">Start</label>
-              <input id="start" v-model="draft.eventTime" type="datetime-local" required />
+              <input
+                id="start"
+                v-model="draft.eventTime"
+                type="datetime-local"
+                required
+                :min="mode === 'create' ? minStartTime : undefined"
+              />
             </div>
             <div class="field">
               <label for="end">End</label>
@@ -2029,8 +2050,8 @@ function templateOptionLabel(t: MeetupTemplate) {
               · must be within {{ selectedLiveEventWindowLabel }}
             </template>
           </p>
-          <p v-if="durationError" class="error" style="margin-top: 0.35rem">
-            {{ durationError }}
+          <p v-if="startPastError || durationError" class="error" style="margin-top: 0.35rem">
+            {{ startPastError || durationError }}
           </p>
           <p v-if="liveEventWindowError" class="error" style="margin-top: 0.35rem">
             {{ liveEventWindowError }}

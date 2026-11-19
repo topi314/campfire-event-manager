@@ -48,10 +48,13 @@ func (s *Server) requireAdminOfClub(r *http.Request, clubID string) (string, int
 		if errors.Is(err, errMissingCampfireToken) {
 			return "", http.StatusBadRequest, "missing Campfire Authorization Bearer token"
 		}
-		if campfire.IsUnavailable(err) {
-			return "", http.StatusBadGateway, campfire.UnavailableMessage
+		if status, msg, ok := campfire.ClientStatus(err); ok {
+			return "", status, msg
 		}
-		return "", http.StatusBadGateway, err.Error()
+		if campfire.IsUnavailable(err) {
+			return "", http.StatusInternalServerError, campfire.UnavailableMessage
+		}
+		return "", http.StatusInternalServerError, err.Error()
 	}
 	for _, id := range ids {
 		if id == clubID {

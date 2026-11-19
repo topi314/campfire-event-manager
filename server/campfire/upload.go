@@ -139,16 +139,12 @@ func (c *Client) roundTripMultipart(ctx context.Context, token, operation, conte
 		}
 	}
 	if len(parsed.Errors) > 0 {
-		msgs := make([]string, 0, len(parsed.Errors))
-		for _, e := range parsed.Errors {
-			msgs = append(msgs, formatGqlErr(e))
-		}
-		joined := strings.Join(msgs, "; ")
+		gerr := graphqlFailure(parsed.Errors)
 		if parsed.Data == nil || bytes.Equal(parsed.Data, []byte("null")) {
 			return nil, &campfireHTTPError{
 				status: resp.StatusCode,
 				body:   data,
-				err:    fmt.Errorf("graphql: %s", joined),
+				err:    gerr,
 			}
 		}
 		slog.WarnContext(ctx, "graphql partial errors",

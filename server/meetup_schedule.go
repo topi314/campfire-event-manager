@@ -15,6 +15,14 @@ const minMeetupDuration = 15 * time.Minute
 // maxMeetupDuration is the longest allowed meetup length. Exactly 24 hours is allowed.
 const maxMeetupDuration = 24 * time.Hour
 
+// meetupStartInPast reports whether start is earlier than now.
+func meetupStartInPast(start, now time.Time) bool {
+	if start.IsZero() || now.IsZero() {
+		return false
+	}
+	return start.Before(now)
+}
+
 type meetupScheduleRequest struct {
 	TimeZone  string `json:"timeZone"`
 	Date      string `json:"date"`

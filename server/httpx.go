@@ -21,11 +21,15 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 func writeCampfireError(w http.ResponseWriter, err error) {
-	if campfire.IsUnavailable(err) {
-		writeError(w, http.StatusBadGateway, campfire.UnavailableMessage)
+	if status, msg, ok := campfire.ClientStatus(err); ok {
+		writeError(w, status, msg)
 		return
 	}
-	writeError(w, http.StatusBadGateway, err.Error())
+	if campfire.IsUnavailable(err) {
+		writeError(w, http.StatusInternalServerError, campfire.UnavailableMessage)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, err.Error())
 }
 
 func decodeJSON(r *http.Request, dest any) error {

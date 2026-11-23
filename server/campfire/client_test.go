@@ -2,6 +2,8 @@ package campfire
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -50,6 +52,48 @@ func TestClientStatusContentAndTime(t *testing.T) {
 				t.Fatalf("err=%v status=%d msg=%q ok=%v", err, status, msg, ok)
 			}
 		})
+	}
+}
+
+func TestWritesIgnoreCallerCancel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		q := string(body)
+		var resp string
+		switch {
+		case strings.Contains(q, "createActivityReminder"):
+			resp = `{"data":{"createActivityReminder":{"event":{"id":"e"}}}}`
+		case strings.Contains(q, "editEvent"):
+			resp = `{"data":{"editEvent":{"event":{"id":"e"}}}}`
+		case strings.Contains(q, "deleteEvent"):
+			resp = `{"data":{"deleteEvent":{"success":true}}}`
+		case strings.Contains(q, "createLink"):
+			resp = `{"data":{"createLink":{"link":{"url":"https://cmpf.re/abc"}}}}`
+		default:
+			http.Error(w, "unexpected query", http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(resp))
+	}))
+	t.Cleanup(srv.Close)
+	c := New(Config{URL: srv.URL, MaxRetries: 1})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := c.Clubs(ctx, "token"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Clubs err=%v, reads should still honor cancel", err)
+	}
+	if _, err := c.CreateActivityReminder(ctx, "token", CreateActivityReminderInput{ClubID: "c", Name: "n"}); err != nil {
+		t.Fatalf("CreateActivityReminder: %v", err)
+	}
+	if _, err := c.EditEvent(ctx, "token", EditEventInput{EventID: "e", Name: "n"}); err != nil {
+		t.Fatalf("EditEvent: %v", err)
+	}
+	if _, err := c.DeleteEvent(ctx, "token", "e"); err != nil {
+		t.Fatalf("DeleteEvent: %v", err)
+	}
+	if _, err := c.CreateEventLink(ctx, "token", "e"); err != nil {
+		t.Fatalf("CreateEventLink: %v", err)
 	}
 }
 

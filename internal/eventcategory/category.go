@@ -16,8 +16,7 @@ const (
 var All = map[string][]string{
 	"Raid Day": {
 		"Raid Day",
-		"Mega Raid",
-		"Elite Raid",   // "Elite Raids"
+		"Elite Raid", // "Elite Raids"
 		"Mega Ascension",
 	},
 	"Raid Hour": {"Raid Hour"},
@@ -26,7 +25,13 @@ var All = map[string][]string{
 		"Super Mega Raids",
 		"Super Mega Raid",
 	},
-	// Super Mega / Shadow are Raid Day variants for template fallbacks.
+	// "Mega Raid" is after Super Mega in Ordered ("Super Mega Raid" contains "Mega Raid").
+	"Mega Raid Day": {
+		"Mega Raid Day",
+		"Mega Raids",
+		"Mega Raid",
+	},
+	// Super Mega / Mega / Shadow are Raid Day variants for template fallbacks.
 	"Shadow Raid Day": {
 		"Shadow Raid Day",
 		"Shadow Raid Hour",
@@ -70,6 +75,9 @@ var StripExtra = map[string][]string{
 		"Ultra Unlock:",
 		"Ultra Unlock",
 	},
+	"Mega Raid Day": {
+		"Raid Day",
+	},
 }
 
 var Ordered = []string{
@@ -84,6 +92,7 @@ var Ordered = []string{
 	"Hatch Day",
 	"Friendship Friday",
 	"Super Mega Raid Day",
+	"Mega Raid Day",
 	"Shadow Raid Day",
 	"Raid Day",
 	"Raid Hour",
@@ -122,7 +131,7 @@ type Clock struct {
 }
 
 // DefaultClock returns the usual meetup hours for a live-event category.
-// Research / Hatch / Catch Mastery: 11:00–17:00. Raid Day (+ Super Mega / Shadow)
+// Research / Hatch / Catch Mastery: 11:00–17:00. Raid Day (+ Super Mega / Mega / Shadow)
 // and Max Battle Day: 14:00–17:00. Raid Hour / Spotlight / Max Monday: 18:00–19:00.
 func DefaultClock(category string) (start, end Clock) {
 	switch strings.TrimSpace(category) {
@@ -130,7 +139,7 @@ func DefaultClock(category string) (start, end Clock) {
 		return Clock{18, 0}, Clock{19, 0}
 	case "Research Day", "Hatch Day", "Catch Mastery":
 		return Clock{11, 0}, Clock{17, 0}
-	case "Raid Day", "Super Mega Raid Day", "Shadow Raid Day", "Max Battle Day":
+	case "Raid Day", "Super Mega Raid Day", "Mega Raid Day", "Shadow Raid Day", "Max Battle Day":
 		return Clock{14, 0}, Clock{17, 0}
 	default:
 		// Community Day, etc.
@@ -155,7 +164,7 @@ func CategoryFallbacks(category string) []string {
 		return []string{"Community Day"}
 	case "Community Day":
 		return []string{"Community Day Classic"}
-	case "Super Mega Raid Day", "Shadow Raid Day":
+	case "Super Mega Raid Day", "Mega Raid Day", "Shadow Raid Day":
 		return []string{"Raid Day"}
 	case "Catch Mastery":
 		return []string{"Research Day"}

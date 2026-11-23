@@ -171,7 +171,7 @@ onBeforeUnmount(() => {
             <h3>Event Pokémon</h3>
             <p class="muted section-p">
               Extracted from the live event title for categories like Community Day, Raid Hour,
-              Raid Day, Super Mega Raid Day, Shadow Raid Day, Spotlight Hour, Research Day,
+              Raid Day, Super Mega Raid Day, Mega Raid Day, Shadow Raid Day, Spotlight Hour, Research Day,
               Catch Mastery, Hatch Day, Max Monday/Battle Day (not GO Fest/Tour/etc.).
               Form prefixes (Mega, Shadow, Alolan, Galarian, …) are matched when present.
               <code v-pre>{{eventPokemon}}</code> is translated to the meetup language

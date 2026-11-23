@@ -217,6 +217,7 @@ type editEventResp struct {
 }
 
 func (c *Client) EditEvent(ctx context.Context, token string, input EditEventInput) (*CreatedEvent, error) {
+	ctx = context.WithoutCancel(ctx)
 	if input.Avatar != nil && len(input.Avatar.Data) > 0 {
 		return c.editEventWithAvatar(ctx, token, input)
 	}
@@ -254,6 +255,7 @@ type deleteEventResp struct {
 }
 
 func (c *Client) DeleteEvent(ctx context.Context, token, eventID string) (bool, error) {
+	ctx = context.WithoutCancel(ctx)
 	var resp deleteEventResp
 	if err := c.Do(ctx, token, mutationDeleteEvent, deleteEventVars{
 		Input: DeleteEventInput{EventID: eventID},

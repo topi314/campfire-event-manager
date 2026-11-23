@@ -170,6 +170,7 @@ type createActivityReminderResp struct {
 }
 
 func (c *Client) CreateActivityReminder(ctx context.Context, token string, input CreateActivityReminderInput) (*CreatedEvent, error) {
+	ctx = context.WithoutCancel(ctx)
 	avatar := input.Avatar
 	input.Avatar = nil
 	input.CoverPhotoURL = ""

@@ -245,6 +245,10 @@ func (e *campfireHTTPError) Error() string { return e.err.Error() }
 func (e *campfireHTTPError) Unwrap() error { return e.err }
 
 func logCampfireExchange(ctx context.Context, operation string, request, response []byte, status int, err error) {
+	// Expired or missing tokens are expected; they show up as a user-facing auth error.
+	if status == http.StatusUnauthorized {
+		return
+	}
 	slog.ErrorContext(ctx, "campfire graphql request failed",
 		slog.String("operation", operation),
 		slog.Int("status", status),

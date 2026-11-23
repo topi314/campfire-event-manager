@@ -13,9 +13,13 @@ func TestFromNameSuperMegaAndShadow(t *testing.T) {
 		{"Super Mega Raids", "Super Mega Raid Day"},
 		{"Ultra Unlock: Starmie Super Mega Raid Day", "Super Mega Raid Day"},
 		{"Staraptor Super Mega Raid Day", "Super Mega Raid Day"},
-		{"Camerupt Mega Raid Day", "Raid Day"},
-		{"Mega Gallade Mega Raid Day", "Raid Day"},
-		{"Rayquaza Mega Raid Day", "Raid Day"},
+		{"Camerupt Mega Raid Day", "Mega Raid Day"},
+		{"Mega Gallade Mega Raid Day", "Mega Raid Day"},
+		{"Rayquaza Mega Raid Day", "Mega Raid Day"},
+		{"Mega Raid", "Mega Raid Day"},
+		{"Mawile Mega Raid", "Mega Raid Day"},
+		{"Mega Kangaskhan Raid Day", "Raid Day"},
+		{"Mega Latias Raid Hour", "Raid Hour"},
 		{"Falinks Raid Day", "Raid Day"},
 		{"Shadow Raid Day", "Shadow Raid Day"},
 		{"Entei Shadow Raid Day", "Shadow Raid Day"},
@@ -53,7 +57,7 @@ func TestClientCatalogIncludesSuperMegaAndShadow(t *testing.T) {
 	for _, e := range cat {
 		names[e.Name] = e
 	}
-	for _, want := range []string{"Super Mega Raid Day", "Shadow Raid Day", "Raid Day"} {
+	for _, want := range []string{"Super Mega Raid Day", "Mega Raid Day", "Shadow Raid Day", "Raid Day"} {
 		if _, ok := names[want]; !ok {
 			t.Fatalf("missing %q in catalog", want)
 		}
@@ -63,6 +67,9 @@ func TestClientCatalogIncludesSuperMegaAndShadow(t *testing.T) {
 	}
 	if got := names["Super Mega Raid Day"].Fallbacks; len(got) != 1 || got[0] != "Raid Day" {
 		t.Fatalf("Super Mega Raid Day fallbacks=%v want [Raid Day]", got)
+	}
+	if got := names["Mega Raid Day"].Fallbacks; len(got) != 1 || got[0] != "Raid Day" {
+		t.Fatalf("Mega Raid Day fallbacks=%v want [Raid Day]", got)
 	}
 	if names["Raid Hour"].FixedLocalHour != true {
 		t.Fatal("Raid Hour should be fixedLocalHour")

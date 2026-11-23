@@ -27,6 +27,7 @@ export const TEMPLATE_CATEGORY_OPTIONS_FALLBACK = [
   "Hatch Day",
   "Friendship Friday",
   "Super Mega Raid Day",
+  "Mega Raid Day",
   "Shadow Raid Day",
   "Raid Day",
   "Raid Hour",
@@ -72,6 +73,7 @@ export function categoryFallbacks(
     case "Community Day":
       return ["Community Day Classic"];
     case "Super Mega Raid Day":
+    case "Mega Raid Day":
     case "Shadow Raid Day":
       return ["Raid Day"];
     case "Catch Mastery":

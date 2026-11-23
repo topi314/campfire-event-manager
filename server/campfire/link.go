@@ -25,6 +25,7 @@ type createLinkResp struct {
 
 // CreateEventLink returns Campfire's short share URL for an event (e.g. https://cmpf.re/xxxxxx).
 func (c *Client) CreateEventLink(ctx context.Context, token, eventID string) (string, error) {
+	ctx = context.WithoutCancel(ctx)
 	eventID = strings.TrimSpace(eventID)
 	if eventID == "" {
 		return "", fmt.Errorf("eventId required")

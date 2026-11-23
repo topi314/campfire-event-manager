@@ -43,6 +43,7 @@ var ExtractableCategories = map[string]struct{}{
 	"Raid Hour":             {},
 	"Raid Day":              {},
 	"Super Mega Raid Day":   {},
+	"Mega Raid Day":         {},
 	"Shadow Raid Day":       {},
 	"Spotlight Hour":        {},
 	"Research Day":          {},
